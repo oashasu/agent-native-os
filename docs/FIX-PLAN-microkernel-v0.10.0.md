@@ -4,6 +4,20 @@
 原则（用户级工作纪律）：主路径优先；边角情形登记为观察 + 继续；致残对照验收。
 每个修复项：**变更点 → 验收（含致残对照）→ 影响面**。
 
+## 状态
+
+| 批次 | 项 | 状态 | commit |
+|---|---|---|---|
+| P0 | FIX-1 内核启动韧性 | ✅ 完成（TDD + 致残 + E2E smoke） | `6d78bbf` |
+| P0 | FIX-2 注册表回收死亡 runtime | ✅ 完成（TDD + 致残 x2） | `b3c1be6` |
+| P0 | FIX-3 写超时 / 事件扇出隔离 / stream 段隔离 | ✅ 完成（TDD + 致残 x3，`-race` 干净） | `d83e67c` |
+| P1 | FIX-4 composition fitness function | ⏳ 随首个 composition 插件 |  |
+| P1 | FIX-5 契约与内核分家 | ⏳ 竖切设计定稿后 |  |
+| P2 | FIX-6 ~ FIX-15 硬化项 | ⏳ 按需穿插 |  |
+
+P0 全部落地后 `bash scripts/test.sh` 全绿，含 M0.5 ADVERSARIAL QUALIFICATION: PASSED。
+下一步：竖切设计定稿（A2 决策 + 插件边界图），需先定 2 个待决问题（竖切范围 / Agent 真实度）。
+
 ---
 
 ## P0 — 搭竖切之前必须落地
