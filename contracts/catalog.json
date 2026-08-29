@@ -1,0 +1,4 @@
+{
+  "event.journal.append@1": "event.journal.append/v1/schema.json",
+  "event.journal.replay@1": "event.journal.replay/v1/schema.json"
+}

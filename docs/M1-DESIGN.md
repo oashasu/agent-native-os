@@ -507,7 +507,7 @@ contracts 仓根化、engineering 语义不回流 kernel（且已有 `check_boun
 ## 13. M1 内部里程碑（Codex 重排：DONE 不可绕过在真实 provider 之前）
 
 ```text
-M1.0  contracts 分家 + composition fitness (check_composition.py) + go.work + event.journal foundation 插件
+M1.0  contracts 分家 + composition fitness (check_composition.py) + go.work + event.journal foundation 插件 — done 000544f
       + plugin scaffold 模板 + fixtures/sample-java-project + M1 部署 config/smoke
 M1.1  org.vibe.blob（blob.put/get/stat）+ work-registry（Task/WorkContext/真实状态机/attach_evidence/
       expected_version 必填）+ 产品 CLI: vibe task create / show
