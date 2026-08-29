@@ -1,0 +1,53 @@
+{
+  "manifest_version": 1,
+  "plugin": {
+    "id": "org.vibe.workflow.demo",
+    "version": "0.9.0"
+  },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "bin/workflow-demo",
+    "isolation": "process"
+  },
+  "exports": [
+    {
+      "capability": "workflow.demo.run",
+      "major": 1,
+      "contract": "workflow.demo.run@1",
+      "mode": "stateless"
+    }
+  ],
+  "consumes": {
+    "required": [
+      {
+        "capability": "work.create",
+        "major": 1,
+        "contract": "work.create@1"
+      },
+      {
+        "capability": "work.get",
+        "major": 1,
+        "contract": "work.get@1"
+      },
+      {
+        "capability": "work.transition",
+        "major": 1,
+        "contract": "work.transition@1"
+      },
+      {
+        "capability": "event.journal.append",
+        "major": 1,
+        "contract": "event.journal.append@1"
+      },
+      {
+        "capability": "agent.execute",
+        "major": 1,
+        "contract": "agent.execute@1"
+      }
+    ]
+  },
+  "resources": {
+    "memory_mb": 128,
+    "cpu_weight": 20
+  }
+}

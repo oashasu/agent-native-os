@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "fence.probe.write@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "marker": {"type": "string"},
+      "delay_ms": {"type": "integer", "minimum": 0}
+    },
+    "required": ["marker", "delay_ms"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "committed": {"type": "boolean"},
+      "runtime_id": {"type": "string"},
+      "fencing_epoch": {"type": "integer"}
+    },
+    "required": ["committed", "runtime_id", "fencing_epoch"]
+  }
+}

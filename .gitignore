@@ -1,0 +1,8 @@
+# build artifacts
+/kernel/bin/
+/kernel/plugins/bin/
+# runtime data
+/kernel/data/
+**/.vibe-fences/
+# rust target dirs (reference material)
+/reference/**/target/

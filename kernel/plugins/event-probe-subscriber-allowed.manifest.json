@@ -1,0 +1,7 @@
+{
+  "manifest_version":1,
+  "plugin":{"id":"org.vibe.event.probe.subscriber.allowed","version":"0.10.0"},
+  "runtime":{"protocol":"vibe-plugin/1","executable":"bin/event-probe-subscriber-allowed","isolation":"process"},
+  "subscribes":[{"capability":"security.sensitive.changed","major":1,"contract":"security.sensitive.changed@1"}],
+  "resources":{"memory_mb":128,"cpu_weight":20}
+}

@@ -1,0 +1,8 @@
+{
+  "manifest_version":1,
+  "plugin":{"id":"org.vibe.event.probe.publisher","version":"0.10.0"},
+  "runtime":{"protocol":"vibe-plugin/1","executable":"bin/event-probe-publisher","isolation":"process"},
+  "exports":[{"capability":"event.probe.emit","major":1,"contract":"event.probe.emit@1","mode":"stateless"}],
+  "publishes":[{"capability":"security.sensitive.changed","major":1,"contract":"security.sensitive.changed@1"}],
+  "resources":{"memory_mb":128,"cpu_weight":20}
+}

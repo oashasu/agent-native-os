@@ -1,0 +1,33 @@
+?   	github.com/example/agent-native-microkernel/cmd/kernel	[no test files]
+?   	github.com/example/agent-native-microkernel/cmd/vibe	[no test files]
+?   	github.com/example/agent-native-microkernel/examples/demo-cli	[no test files]
+?   	github.com/example/agent-native-microkernel/examples/mock-agent	[no test files]
+?   	github.com/example/agent-native-microkernel/examples/uppercase-consumer	[no test files]
+?   	github.com/example/agent-native-microkernel/examples/uppercase-provider	[no test files]
+?   	github.com/example/agent-native-microkernel/examples/uppercase-provider-alt	[no test files]
+ok  	github.com/example/agent-native-microkernel/internal/authz	(cached)
+ok  	github.com/example/agent-native-microkernel/internal/clientgateway	(cached)
+ok  	github.com/example/agent-native-microkernel/internal/manifest	(cached)
+?   	github.com/example/agent-native-microkernel/internal/router	[no test files]
+?   	github.com/example/agent-native-microkernel/internal/supervisor	[no test files]
+?   	github.com/example/agent-native-microkernel/plugins/event-journal	[no test files]
+ok  	github.com/example/agent-native-microkernel/internal/policy	(cached)
+ok  	github.com/example/agent-native-microkernel/internal/registry	(cached)
+?   	github.com/example/agent-native-microkernel/plugins/stream-probe	[no test files]
+?   	github.com/example/agent-native-microkernel/plugins/work-registry	[no test files]
+?   	github.com/example/agent-native-microkernel/plugins/workflow-demo	[no test files]
+?   	github.com/example/agent-native-microkernel/sdk/go/contracts/agentv1	[no test files]
+?   	github.com/example/agent-native-microkernel/sdk/go/contracts/eventv1	[no test files]
+?   	github.com/example/agent-native-microkernel/sdk/go/contracts/streamprobev1	[no test files]
+?   	github.com/example/agent-native-microkernel/sdk/go/contracts/workflowv1	[no test files]
+?   	github.com/example/agent-native-microkernel/sdk/go/contracts/workv1	[no test files]
+ok  	github.com/example/agent-native-microkernel/sdk/go/pluginhost	(cached)
+ok  	github.com/example/agent-native-microkernel/sdk/go/protocol	(cached)
+CONTRACT CHECK: PASSED (8 contracts, Draft 2020-12 schemas)
+ARCHITECTURE FITNESS: PASSED
+checked 6 plugin manifests, 8 contract identities, stateful authority/storage declarations, cross-plugin imports and kernel vocabulary
+M0.5 ADVERSARIAL QUALIFICATION: PASSED
+validated: authenticated external client gateway + identity-bound grants + external streaming, idempotency, stateful same-authority failover, stream cancellation, trace propagation, durable replay, plugin restart, kernel restart
+
+RACE TEST: PASSED
+go test -race ./... completed successfully.

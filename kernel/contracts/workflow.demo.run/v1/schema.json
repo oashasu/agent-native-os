@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "workflow.demo.run@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_id": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "prompt": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "work_id",
+      "title",
+      "prompt"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "work_id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "correlation_id": {
+        "type": "string"
+      },
+      "journaled": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "work_id",
+      "status",
+      "trace_id",
+      "correlation_id",
+      "journaled"
+    ]
+  }
+}

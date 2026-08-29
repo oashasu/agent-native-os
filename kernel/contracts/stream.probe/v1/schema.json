@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "stream.probe@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "prompt": {
+        "type": "string"
+      },
+      "cancel_after": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "chunks": {
+        "type": "integer"
+      },
+      "cancelled": {
+        "type": "boolean"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "correlation_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "chunks",
+      "cancelled",
+      "trace_id",
+      "correlation_id"
+    ]
+  }
+}

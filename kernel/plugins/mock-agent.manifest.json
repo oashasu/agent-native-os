@@ -1,0 +1,30 @@
+{
+  "manifest_version": 1,
+  "plugin": {
+    "id": "org.vibe.agent.mock",
+    "version": "0.9.0"
+  },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "bin/mock-agent",
+    "isolation": "process"
+  },
+  "exports": [
+    {
+      "capability": "agent.execute",
+      "major": 1,
+      "contract": "agent.execute@1",
+      "mode": "stateless",
+      "priority": 100
+    }
+  ],
+  "restart": {
+    "mode": "on_failure",
+    "max_attempts": 2,
+    "cooldown_ms": 600
+  },
+  "resources": {
+    "memory_mb": 128,
+    "cpu_weight": 20
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "manifest_version": 1,
+  "plugin": {"id": "org.vibe.fence.probe.replica", "version": "0.10.0"},
+  "runtime": {"protocol": "vibe-plugin/1", "executable": "bin/fence-probe-replica", "isolation": "process", "data_namespace": "state-authority/fence-main"},
+  "exports": [
+    {"capability": "fence.probe.write", "major": 1, "contract": "fence.probe.write@1", "mode": "stateful", "service": "fence-probe", "authority": "fence-main", "priority": 50}
+  ],
+  "resources": {"memory_mb": 128, "cpu_weight": 20}
+}

@@ -1,0 +1,7 @@
+{
+  "manifest_version":1,
+  "plugin":{"id":"org.vibe.cancel.probe","version":"0.10.0"},
+  "runtime":{"protocol":"vibe-plugin/1","executable":"bin/cancel-probe","isolation":"process"},
+  "exports":[{"capability":"cancel.probe","major":1,"contract":"cancel.probe@1","mode":"stateless","priority":100}],
+  "resources":{"memory_mb":64,"cpu_weight":10}
+}

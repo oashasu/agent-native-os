@@ -1,0 +1,6 @@
+2026/08/28 12:53:24 started org.vibe.demo.cli 1.0.0
+2026/08/28 12:53:24 started org.vibe.demo.consumer 1.0.0
+2026/08/28 12:53:24 started org.vibe.demo.uppercase.alt 1.0.0
+2026/08/28 12:53:24 started org.vibe.demo.uppercase 1.0.0
+demo result: map[text:MICROKERNEL via:contract]
+failover result: map[text:[ALT]MICROKERNEL via:contract]

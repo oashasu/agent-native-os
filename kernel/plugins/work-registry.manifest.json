@@ -1,0 +1,50 @@
+{
+  "manifest_version": 1,
+  "plugin": {
+    "id": "org.vibe.work.registry",
+    "version": "0.9.0"
+  },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "bin/work-registry",
+    "isolation": "process",
+    "data_namespace": "state-authority/workdb-main"
+  },
+  "exports": [
+    {
+      "capability": "work.create",
+      "major": 1,
+      "contract": "work.create@1",
+      "mode": "stateful",
+      "service": "default-work-registry",
+      "authority": "workdb-main",
+      "priority": 100
+    },
+    {
+      "capability": "work.get",
+      "major": 1,
+      "contract": "work.get@1",
+      "mode": "stateful",
+      "service": "default-work-registry",
+      "authority": "workdb-main",
+      "priority": 100
+    },
+    {
+      "capability": "work.transition",
+      "major": 1,
+      "contract": "work.transition@1",
+      "mode": "stateful",
+      "service": "default-work-registry",
+      "authority": "workdb-main",
+      "priority": 100
+    }
+  ],
+  "restart": {
+    "mode": "never",
+    "max_attempts": 0
+  },
+  "resources": {
+    "memory_mb": 128,
+    "cpu_weight": 20
+  }
+}

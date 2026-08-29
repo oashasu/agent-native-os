@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "cancel.probe@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object", "additionalProperties": false,
+    "properties": {"delay_ms":{"type":"integer","minimum":1},"marker":{"type":"string"}},
+    "required": ["delay_ms","marker"]
+  },
+  "response": {
+    "type": "object", "additionalProperties": false,
+    "properties": {"committed":{"type":"boolean"}},
+    "required": ["committed"]
+  }
+}

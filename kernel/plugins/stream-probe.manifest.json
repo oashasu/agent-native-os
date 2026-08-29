@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "plugin": {
+    "id": "org.vibe.stream.probe",
+    "version": "0.9.0"
+  },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "bin/stream-probe",
+    "isolation": "process"
+  },
+  "exports": [
+    {
+      "capability": "stream.probe",
+      "major": 1,
+      "contract": "stream.probe@1",
+      "mode": "stateless"
+    }
+  ],
+  "consumes": {
+    "required": [
+      {
+        "capability": "agent.execute",
+        "major": 1,
+        "contract": "agent.execute@1"
+      }
+    ]
+  },
+  "resources": {
+    "memory_mb": 128,
+    "cpu_weight": 20
+  }
+}

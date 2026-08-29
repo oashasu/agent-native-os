@@ -1,0 +1,84 @@
+{
+  "clients": {
+    "local-cli": {
+      "token_sha256": "8aeef03f00643071d8657403eaf032fc0f2d13173d1f566393ac00ee4c0f4ffa"
+    },
+    "read-only-cli": {
+      "token_sha256": "ce08aa1b976afc4633170b0f93fa8a387c7c0d6e0be0b4a80ff9526ded85a552"
+    },
+    "limited-user": {
+      "token_sha256": "06feaddf7150764714ef9c72f6eb6c900c66996cbcbd0c54514088ace83d3f85"
+    },
+    "workflow-user": {
+      "token_sha256": "38c7f440b68fb12e79f0f487161e3e4c1562b44a4e8ca7e1fc08f3c9288512b0"
+    }
+  },
+  "grants": {
+    "local-cli": {
+      "capabilities": [
+        "work.*@1",
+        "event.journal.*@1",
+        "workflow.demo.run@1",
+        "stream.probe@1",
+        "agent.execute@1",
+        "cancel.probe@1",
+        "fence.probe.write@1",
+        "event.probe.emit@1",
+        "event.probe.forge@1"
+      ]
+    },
+    "read-only-cli": {
+      "capabilities": [
+        "work.get@1",
+        "event.journal.replay@1"
+      ]
+    },
+    "org.vibe.workflow.demo": {
+      "capabilities": [
+        "work.*@1",
+        "event.journal.append@1",
+        "agent.execute@1"
+      ]
+    },
+    "org.vibe.stream.probe": {
+      "capabilities": [
+        "agent.execute@1"
+      ]
+    },
+    "limited-user": {
+      "capabilities": [
+        "workflow.demo.run@1"
+      ]
+    },
+    "org.vibe.event.probe.publisher": {
+      "publishes": [
+        "security.sensitive.changed@1"
+      ]
+    },
+    "org.vibe.event.probe.subscriber.allowed": {
+      "subscribes": [
+        "security.sensitive.changed@1"
+      ]
+    },
+    "org.vibe.event.probe.subscriber.denied": {},
+    "org.vibe.event.probe.malicious": {
+      "publishes": [
+        "security.sensitive.changed@1"
+      ]
+    },
+    "workflow-user": {
+      "capabilities": [
+        "workflow.demo.run@1"
+      ],
+      "delegations": {
+        "workflow.demo.run@1": [
+          "work.create@1",
+          "work.get@1",
+          "work.transition@1",
+          "agent.execute@1",
+          "event.journal.append@1"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "work.create@1": "work.create/v1/schema.json",
+  "work.get@1": "work.get/v1/schema.json",
+  "work.transition@1": "work.transition/v1/schema.json",
+  "event.journal.append@1": "event.journal.append/v1/schema.json",
+  "event.journal.replay@1": "event.journal.replay/v1/schema.json",
+  "agent.execute@1": "agent.execute/v1/schema.json",
+  "workflow.demo.run@1": "workflow.demo.run/v1/schema.json",
+  "stream.probe@1": "stream.probe/v1/schema.json",
+  "cancel.probe@1": "cancel.probe/v1/schema.json",
+  "fence.probe.write@1": "fence.probe.write/v1/schema.json",
+  "event.probe.emit@1": "event.probe.emit/v1/schema.json",
+  "security.sensitive.changed@1": "security.sensitive.changed/v1/schema.json",
+  "event.probe.forge@1": "event.probe.forge/v1/schema.json"
+}

@@ -1,0 +1,9 @@
+{
+  "bindings": [
+    {"capability":"work.create","major":1,"service":"default-work-registry","authority":"workdb-main"},
+    {"capability":"work.get","major":1,"service":"default-work-registry","authority":"workdb-main"},
+    {"capability":"work.transition","major":1,"service":"default-work-registry","authority":"workdb-main"},
+    {"capability":"event.journal.append","major":1,"service":"default-event-journal","authority":"journal-main"},
+    {"capability":"event.journal.replay","major":1,"service":"default-event-journal","authority":"journal-main"}
+  ]
+}

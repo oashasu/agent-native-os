@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "agent.execute@1",
+  "version": "1.1.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "prompt": {
+        "type": "string"
+      },
+      "steps": {
+        "type": "integer"
+      },
+      "delay_ms": {
+        "type": "integer"
+      },
+      "cancel_marker": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "stream_id": {
+        "type": "string"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "correlation_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "stream_id",
+      "trace_id",
+      "correlation_id"
+    ]
+  }
+}

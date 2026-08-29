@@ -1,0 +1,9 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "contract":"event.probe.forge@1",
+  "version":"1.0.0",
+  "kind":"command",
+  "compatibility":"backward-within-major",
+  "request":{"type":"object","additionalProperties":false,"properties":{"value":{"type":"string"}},"required":["value"]},
+  "response":{"type":"object","additionalProperties":false,"properties":{"sent":{"type":"boolean"}},"required":["sent"]}
+}

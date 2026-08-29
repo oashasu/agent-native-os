@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "security.sensitive.changed@1",
+  "version": "1.0.0",
+  "kind": "event",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object", "additionalProperties": false,
+    "properties": {"value": {"type": "string"}},
+    "required": ["value"]
+  },
+  "response": {
+    "type": "object", "additionalProperties": false,
+    "properties": {}
+  }
+}
