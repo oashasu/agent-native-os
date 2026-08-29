@@ -7,18 +7,29 @@ bash scripts/build.sh >/dev/null
 DATA="$(mktemp -d)"
 SOCK="$DATA/kernel.sock"
 export VIBE_DATA_ROOT="$DATA/data"
-
-.bin/vibe-kernel -plugins ./plugins/manifests -policy ./config/m1-policy.json \
-  -bindings ./config/m1-bindings.json -contracts ./contracts -socket "$SOCK" \
-  >"$DATA/kernel.log" 2>&1 &
-KPID=$!
-trap 'kill $KPID 2>/dev/null; wait $KPID 2>/dev/null; rm -rf "$DATA"' EXIT
-
-for _ in $(seq 1 300); do [ -S "$SOCK" ] && break; sleep 0.03; done
-[ -S "$SOCK" ] || { echo "FAIL: kernel socket never appeared"; cat "$DATA/kernel.log"; exit 1; }
-
 TOKEN='m1-local-cli-token'
 export VIBE_CLIENT_TOKEN="$TOKEN"
+KPID=""
+
+restart_kernel() {
+  if [ -n "${KPID:-}" ]; then
+    kill "$KPID" 2>/dev/null || true
+    wait "$KPID" 2>/dev/null || true
+  fi
+  rm -f "$SOCK"
+  .bin/vibe-kernel -plugins ./plugins/manifests -policy ./config/m1-policy.json \
+    -bindings ./config/m1-bindings.json -contracts ./contracts -socket "$SOCK" \
+    >>"$DATA/kernel.log" 2>&1 &
+  KPID=$!
+  for _ in $(seq 1 300); do [ -S "$SOCK" ] && break; sleep 0.03; done
+  [ -S "$SOCK" ] || { echo "FAIL: kernel socket did not appear"; cat "$DATA/kernel.log"; exit 1; }
+}
+export SOCK DATA TOKEN KPID
+export -f restart_kernel
+trap 'if [ -n "${KPID:-}" ]; then kill "$KPID" 2>/dev/null; wait "$KPID" 2>/dev/null || true; fi; rm -rf "$DATA"' EXIT
+
+restart_kernel
+
 append_out="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
   -cap event.journal.append -kind command \
   -service default-event-journal -authority journal-main \
@@ -47,15 +58,7 @@ blob_out="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
 BLOB_URI="$(echo "$blob_out" | sed -n 's/.*"uri":"\([^"]*\)".*/\1/p')"
 [ -n "$BLOB_URI" ] || { echo "FAIL: blob put: $blob_out"; exit 1; }
 
-kill $KPID
-wait $KPID 2>/dev/null || true
-rm -f "$SOCK"
-.bin/vibe-kernel -plugins ./plugins/manifests -policy ./config/m1-policy.json \
-  -bindings ./config/m1-bindings.json -contracts ./contracts -socket "$SOCK" \
-  >>"$DATA/kernel.log" 2>&1 &
-KPID=$!
-for _ in $(seq 1 300); do [ -S "$SOCK" ] && break; sleep 0.03; done
-[ -S "$SOCK" ] || { echo "FAIL: kernel socket did not return after restart"; cat "$DATA/kernel.log"; exit 1; }
+restart_kernel
 
 show_out="$(.bin/vibe -socket "$SOCK" -identity local-cli -token "$TOKEN" task show "$TASK_ID")"
 echo "$show_out" | grep -q 'status.*IN_PROGRESS' || { echo "FAIL: task did not survive restart: $show_out"; cat "$DATA/kernel.log"; exit 1; }
@@ -63,5 +66,7 @@ echo "$show_out" | grep -q 'status.*IN_PROGRESS' || { echo "FAIL: task did not s
 got_blob="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
   -cap blob.get -kind query -service default-blob -authority blob-main -payload "{\"uri\":\"$BLOB_URI\"}")"
 echo "$got_blob" | grep -q "$(printf 'diff-bytes' | base64)" || { echo "FAIL: blob did not survive restart: $got_blob"; exit 1; }
+
+source scripts/smoke-workspace.sh
 
 echo "M1 SMOKE: PASSED"

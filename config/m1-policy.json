@@ -1,6 +1,8 @@
 {
   "clients": {
-    "local-cli": { "token_sha256": "fae22dea5494a204ef9f3f28dcf76fb431426172eb885afb7929aa725986d77b" }
+    "local-cli": {
+      "token_sha256": "fae22dea5494a204ef9f3f28dcf76fb431426172eb885afb7929aa725986d77b"
+    }
   },
   "grants": {
     "local-cli": {
@@ -13,7 +15,10 @@
         "work.create@1",
         "work.get@1",
         "work.transition@1",
-        "work.attach_evidence@1"
+        "work.attach_evidence@1",
+        "workspace.allocate@1",
+        "workspace.release@1",
+        "workspace.get@1"
       ]
     },
     "org.vibe.event.journal": {
@@ -23,6 +28,9 @@
       "capabilities": []
     },
     "org.vibe.work.registry": {
+      "capabilities": []
+    },
+    "org.vibe.workspace": {
       "capabilities": []
     }
   }
