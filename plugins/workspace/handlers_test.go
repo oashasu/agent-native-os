@@ -74,3 +74,86 @@ func TestAllocateRejectsMissingFields(t *testing.T) {
 		t.Fatalf("want INVALID, got %+v", perr)
 	}
 }
+
+func allocate(t *testing.T, s *Store, dir, repo, wc string) WorkspaceRef {
+	t.Helper()
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]string{"work_context_id": wc, "repo": repo})
+	out, perr := allocateHandler(s)(env)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	var r struct {
+		Workspace WorkspaceRef `json:"workspace"`
+	}
+	b, _ := json.Marshal(out)
+	_ = json.Unmarshal(b, &r)
+	return r.Workspace
+}
+
+func TestReleasePreserveKeepsWorktreeOnDisk(t *testing.T) {
+	repo, _ := scratchRepo(t)
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	ws := allocate(t, s, dir, repo, "wc-1")
+
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]string{"workspace_id": ws.ID, "policy": "preserve"})
+	out, perr := releaseHandler(s)(env)
+	if perr != nil {
+		t.Fatalf("release: %+v", perr)
+	}
+	var r struct {
+		Workspace WorkspaceRef `json:"workspace"`
+	}
+	b, _ := json.Marshal(out)
+	_ = json.Unmarshal(b, &r)
+	if r.Workspace.Status != StatusReleased || r.Workspace.ReleasePolicy != "preserve" {
+		t.Fatalf("released ref: %+v", r.Workspace)
+	}
+	if _, err := os.Stat(ws.Path); err != nil {
+		t.Fatalf("preserve policy must keep the worktree dir: %v", err)
+	}
+}
+
+func TestReleaseDeleteRemovesWorktree(t *testing.T) {
+	repo, _ := scratchRepo(t)
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	ws := allocate(t, s, dir, repo, "wc-1")
+
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]string{"workspace_id": ws.ID, "policy": "delete"})
+	if _, perr := releaseHandler(s)(env); perr != nil {
+		t.Fatalf("release delete: %+v", perr)
+	}
+	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
+		t.Fatalf("delete policy must remove the worktree dir")
+	}
+}
+
+func TestGetBySelector(t *testing.T) {
+	repo, _ := scratchRepo(t)
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	ws := allocate(t, s, dir, repo, "wc-1")
+
+	for _, sel := range []map[string]string{{"workspace_id": ws.ID}, {"work_context_id": "wc-1"}} {
+		out, perr := getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(sel)})
+		if perr != nil {
+			t.Fatalf("get %v: %+v", sel, perr)
+		}
+		var r struct {
+			Workspace WorkspaceRef `json:"workspace"`
+		}
+		b, _ := json.Marshal(out)
+		_ = json.Unmarshal(b, &r)
+		if r.Workspace.ID != ws.ID {
+			t.Fatalf("get %v returned %s", sel, r.Workspace.ID)
+		}
+	}
+	_, perr := getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{})})
+	if perr == nil || perr.Code != "INVALID" {
+		t.Fatalf("no selector must be INVALID, got %+v", perr)
+	}
+}
