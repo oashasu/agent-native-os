@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "event.journal.append@1",
+  "version": "1.1.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string"
+      },
+      "source": {
+        "type": "string"
+      },
+      "payload": {}
+    },
+    "required": [
+      "type",
+      "source",
+      "payload"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "record": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "correlation_id": {
+            "type": "string"
+          },
+          "causation_id": {
+            "type": "string"
+          },
+          "caller": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string"
+          },
+          "actor_chain": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "payload": {},
+          "previous_sha256": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "timestamp",
+          "caller",
+          "principal",
+          "source",
+          "sha256"
+        ]
+      }
+    },
+    "required": [
+      "record"
+    ]
+  }
+}
