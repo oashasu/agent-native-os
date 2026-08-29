@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "workspace.get@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {"type":"object","additionalProperties":false,"properties":{"workspace_id":{"type":"string"},"work_context_id":{"type":"string"}},"required":[]},
+  "response": {"type":"object","additionalProperties":true,"properties":{"workspace":{"type":"object"}},"required":["workspace"]}
+}

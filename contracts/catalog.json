@@ -7,5 +7,8 @@
   "work.create@1": "work.create/v1/schema.json",
   "work.get@1": "work.get/v1/schema.json",
   "work.transition@1": "work.transition/v1/schema.json",
-  "work.attach_evidence@1": "work.attach-evidence/v1/schema.json"
+  "work.attach_evidence@1": "work.attach-evidence/v1/schema.json",
+  "workspace.allocate@1": "workspace.allocate/v1/schema.json",
+  "workspace.release@1": "workspace.release/v1/schema.json",
+  "workspace.get@1": "workspace.get/v1/schema.json"
 }

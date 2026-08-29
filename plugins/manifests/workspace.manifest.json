@@ -1,0 +1,18 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.workspace", "version": "1.0.0" },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "../bin/workspace",
+    "isolation": "process",
+    "data_namespace": "state-authority/workspace-main"
+  },
+  "exports": [
+    { "capability": "workspace.allocate", "major": 1, "contract": "workspace.allocate@1", "mode": "stateful", "service": "default-workspace", "authority": "workspace-main", "priority": 100 },
+    { "capability": "workspace.release", "major": 1, "contract": "workspace.release@1", "mode": "stateful", "service": "default-workspace", "authority": "workspace-main", "priority": 100 },
+    { "capability": "workspace.get", "major": 1, "contract": "workspace.get@1", "mode": "stateful", "service": "default-workspace", "authority": "workspace-main", "priority": 100 }
+  ],
+  "permissions": ["exec:git", "fs:write"],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 100 },
+  "resources": { "memory_mb": 128, "cpu_weight": 20 }
+}

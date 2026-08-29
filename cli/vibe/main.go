@@ -43,6 +43,21 @@ type workResponse struct {
 	WorkContext workContextView `json:"work_context"`
 }
 
+type workspaceView struct {
+	ID            string `json:"id"`
+	WorkContextID string `json:"work_context_id"`
+	Repo          string `json:"repo"`
+	Path          string `json:"path"`
+	Branch        string `json:"branch"`
+	BaseCommit    string `json:"base_commit"`
+	Status        string `json:"status"`
+	ReleasePolicy string `json:"release_policy"`
+}
+
+type workspaceResponse struct {
+	Workspace workspaceView `json:"workspace"`
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -63,19 +78,35 @@ func run(args []string) error {
 	if *token == "" {
 		return fmt.Errorf("-token or VIBE_CLIENT_TOKEN required")
 	}
-	if len(args) < 2 || args[0] != "task" {
-		return fmt.Errorf("usage: vibe [global flags] task <create|show|transition> ...")
+	if len(args) < 2 {
+		return fmt.Errorf("usage: vibe [global flags] <task|workspace> <subcommand> ...")
 	}
 
-	switch args[1] {
-	case "create":
-		return taskCreate(*socket, *identity, *token, args[2:])
-	case "show":
-		return taskShow(*socket, *identity, *token, args[2:])
-	case "transition":
-		return taskTransition(*socket, *identity, *token, args[2:])
+	switch args[0] {
+	case "task":
+		switch args[1] {
+		case "create":
+			return taskCreate(*socket, *identity, *token, args[2:])
+		case "show":
+			return taskShow(*socket, *identity, *token, args[2:])
+		case "transition":
+			return taskTransition(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown task subcommand %q", args[1])
+		}
+	case "workspace":
+		switch args[1] {
+		case "allocate":
+			return workspaceAllocate(*socket, *identity, *token, args[2:])
+		case "show":
+			return workspaceShow(*socket, *identity, *token, args[2:])
+		case "release":
+			return workspaceRelease(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown workspace subcommand %q", args[1])
+		}
 	default:
-		return fmt.Errorf("unknown task subcommand %q", args[1])
+		return fmt.Errorf("unknown command %q", args[0])
 	}
 }
 
@@ -184,6 +215,112 @@ func taskTransition(socket, identity, token string, args []string) error {
 		return err
 	}
 	fmt.Printf("status %s  version %d\n", out.Task.Status, out.Task.Version)
+	return nil
+}
+
+func workspaceAllocate(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("workspace allocate requires <work-context-id>")
+	}
+	wcID := args[0]
+	fs := flag.NewFlagSet("workspace allocate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repo := fs.String("repo", "", "repository path")
+	baseRef := fs.String("base-ref", "", "base git ref")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *repo == "" {
+		return fmt.Errorf("-repo is required")
+	}
+	payload := map[string]string{"work_context_id": wcID, "repo": *repo}
+	if *baseRef != "" {
+		payload["base_ref"] = *baseRef
+	}
+	resp, err := invoke(socket, identity, token, command("workspace.allocate", payload))
+	if err != nil {
+		return err
+	}
+	var out workspaceResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("workspace %s  branch %s  path %s  base %s\n", out.Workspace.ID, out.Workspace.Branch, out.Workspace.Path, out.Workspace.BaseCommit)
+	return nil
+}
+
+func workspaceShow(socket, identity, token string, args []string) error {
+	var workspaceID string
+	parseArgs := args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		workspaceID = args[0]
+		parseArgs = args[1:]
+	}
+	fs := flag.NewFlagSet("workspace show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	wcID := fs.String("work-context", "", "work context id")
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(parseArgs); err != nil {
+		return err
+	}
+	if (workspaceID == "") == (*wcID == "") {
+		return fmt.Errorf("exactly one of <workspace-id> or -work-context is required")
+	}
+	payload := map[string]string{}
+	if workspaceID != "" {
+		payload["workspace_id"] = workspaceID
+	} else {
+		payload["work_context_id"] = *wcID
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "workspace.get", Major: 1, Payload: protocol.NewPayload(payload)}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		var pretty any
+		if err := json.Unmarshal(resp.Payload, &pretty); err != nil {
+			return err
+		}
+		b, _ := json.MarshalIndent(pretty, "", "  ")
+		fmt.Println(string(b))
+		return nil
+	}
+	var out workspaceResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("id %s\n", out.Workspace.ID)
+	fmt.Printf("status %s\n", out.Workspace.Status)
+	fmt.Printf("branch %s\n", out.Workspace.Branch)
+	fmt.Printf("path %s\n", out.Workspace.Path)
+	fmt.Printf("base_commit %s\n", out.Workspace.BaseCommit)
+	return nil
+}
+
+func workspaceRelease(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("workspace release requires <workspace-id>")
+	}
+	workspaceID := args[0]
+	fs := flag.NewFlagSet("workspace release", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	policy := fs.String("policy", "", "release policy preserve|delete")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *policy != "preserve" && *policy != "delete" {
+		return fmt.Errorf("-policy must be preserve or delete")
+	}
+	resp, err := invoke(socket, identity, token, command("workspace.release", map[string]string{"workspace_id": workspaceID, "policy": *policy}))
+	if err != nil {
+		return err
+	}
+	var out workspaceResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("status %s  policy %s\n", out.Workspace.Status, out.Workspace.ReleasePolicy)
 	return nil
 }
 
