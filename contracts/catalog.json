@@ -14,5 +14,8 @@
   "agent.run@1": "agent.run/v1/schema.json",
   "agent.run.get@1": "agent.run.get/v1/schema.json",
   "agent.run.query@1": "agent.run.query/v1/schema.json",
-  "agent.run.cancel@1": "agent.run.cancel/v1/schema.json"
+  "agent.run.cancel@1": "agent.run.cancel/v1/schema.json",
+  "artifact.collect_diff@1": "artifact.collect-diff/v1/schema.json",
+  "artifact.get@1": "artifact.get/v1/schema.json",
+  "artifact.query@1": "artifact.query/v1/schema.json"
 }
