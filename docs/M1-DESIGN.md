@@ -1,8 +1,8 @@
 # M1 — Engineering Vertical Slice 设计
 
 日期：2026-08-29
-状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）**
-前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）
+状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）+ ADR-002 交互模型对齐（2026-08-29，仅新增 `work.query@1` + scope 澄清，契约面不动）**
+前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）
 方向输入：项目所有者 + Codex（Q1=A / Q2=Real Harness + mock 双轨 / M1 Architecture Gate / 条件批准）
 
 ---
@@ -185,7 +185,7 @@ M2 硬化：review-gate 签发 capability token；`work.transition(DONE)` 要求
 
 | 插件 | authority | 契约（kind） | 拥有 |
 |---|---|---|---|
-| `org.vibe.work.registry` | `work-main` | `work.create@1`(cmd) `work.get@1`(query) `work.transition@1`(cmd) `work.attach_evidence@1`(cmd) | Task、WorkContext、**真实状态机**（§4.1）、`evidence_refs[]` |
+| `org.vibe.work.registry` | `work-main` | `work.create@1`(cmd) `work.get@1`(query) `work.query@1`(query) `work.transition@1`(cmd) `work.attach_evidence@1`(cmd) | Task、WorkContext、**真实状态机**（§4.1）、`evidence_refs[]` |
 | `org.vibe.workspace` | `workspace-main` | `workspace.allocate@1`(cmd) `workspace.release@1`(cmd) `workspace.get@1`(query) | Workspace、git worktree、branch |
 | `org.vibe.agent.harness` | `agent-runs-main` | `agent.run@1`(cmd, streaming) `agent.run.get@1`(query) `agent.run.query@1`(query) `agent.run.cancel@1`(cmd) | AgentRun、harness 生命周期归一化 |
 | `org.vibe.artifact` | `artifact-main` | `artifact.collect_diff@1`(cmd) `artifact.get@1`(query) `artifact.query@1`(query) | Artifact（diff / 命令输出元数据；内容在 blob） |
@@ -194,6 +194,8 @@ M2 硬化：review-gate 签发 capability token；`work.transition(DONE)` 要求
 | `org.vibe.session` | `sessions-main` | `session.seal@1`(cmd) `session.get@1`(query) `session.query@1`(query) | SessionRecord、archive、RecoveryCheckpoint |
 
 `*.query@1`：按 `work_context_id` 查该插件持有的对象列表 —— 支撑 `vibe task show` 的读投影（见 §6）。
+
+`work.query@1`（ADR-002）：枚举全部 WorkContext，返回 `{work_context_id, task_id, title, status, repo, version}[]` + `next` 分页游标；只接受 `status` 过滤（work-registry 自己的词汇，不违 G1）+ `limit`/`after`，**不接受任何工程语义过滤**。用于 Console 上下文切换器 / headless `vibe work list`。§10 单任务 qualification 不依赖它，随 M1.6 落地。
 
 ### 5.3 Composition 插件（只做编排）
 
@@ -331,6 +333,8 @@ work.get(task_id)
 ```
 
 各插件私有 schema（C09）。存储：SQLite/WAL + 增量写（不抄 v0.10 全量 JSON blob）；内容寻址一律走 `org.vibe.blob`。
+
+**Console 的"本次改动" = diff Artifact 的 `summary.files[]`**（ADR-002）：IDE 工作台与 Agent 工作台渲染的是同一份多文件清单。**人手动编辑 worktree 与 agent 编辑等价** —— 都会让 `artifact.collect_diff` 下一次产出不同的 diff artifact，触发 `EvidenceRef.invalidated_at`、旧 Review 按 §4.3 失效。IDE 工作台在 `workspace.get` 给出的真实本地 worktree 路径上直接操作文件系统与本地 `git`，不经 kernel 契约；kernel 只经上述读投影提供围绕 worktree 的工作上下文元数据。
 
 ## 7. 编排模型 —— 解决 A2（D1 有条件通过）
 
@@ -488,6 +492,10 @@ review.decided 事件订阅 + background reconciler（M2）
 Foundation journal 的领域/通用过滤（M2/M3）
 untracked 文件内容打包（M1 只存文件名清单）
 新增 work.complete@1 契约（**撤回** —— 用既有 policy/delegation，见 §4）
+Agent 交互式追问 / 向运行中的 agent.run 追加消息（M2 —— M1 agent.run 一次性 streaming；ADR-002）
+结构化转录卡片渲染（依赖 provider adapter 归一化 —— M1.8+ / UI 阶段；M1 只保证 raw_session_ref + agent.frame 流；ADR-002）
+本地 git 提交历史可视化（UI 阶段 —— worktree 是本地目录，IDE 工作台直接跑 git；ADR-002）
+IDE / Agent 双 lens 前端本体（UI 阶段 —— Neovim，ADR-012；本设计只保证读投影支持，ADR-002）
 ```
 
 ## 12. D1–D7 最终结论（Codex 两轮评审后）
@@ -518,6 +526,7 @@ M1.3  agent-adapter：只 mock provider，agent.run streaming 打通 + AgentRun 
 M1.4  artifact-service（collect_diff）+ tool-runner（结构化 argv + 指纹 + blob 输出） — done (PR #5)
 M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint）
 M1.6  engineering-workflow（无状态编排 + WAITING_REVIEW 轮询 + DONE gate）
+      + work.query@1 / vibe work list（ADR-002 Console 上下文枚举，只读，additive）
 M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE
 M1.8  agent-adapter 接真实 provider #1（运行时发现 codex/claude）
 M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证 → G1–G6 全过 → M1 PASSED
