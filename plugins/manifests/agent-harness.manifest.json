@@ -1,0 +1,24 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.agent.harness", "version": "1.0.0" },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "../bin/agent-harness",
+    "isolation": "process",
+    "data_namespace": "state-authority/agent-runs-main"
+  },
+  "exports": [
+    { "capability": "agent.run", "major": 1, "contract": "agent.run@1", "mode": "stateful", "service": "default-agent-harness", "authority": "agent-runs-main", "priority": 100 },
+    { "capability": "agent.run.get", "major": 1, "contract": "agent.run.get@1", "mode": "stateful", "service": "default-agent-harness", "authority": "agent-runs-main", "priority": 100 },
+    { "capability": "agent.run.query", "major": 1, "contract": "agent.run.query@1", "mode": "stateful", "service": "default-agent-harness", "authority": "agent-runs-main", "priority": 100 },
+    { "capability": "agent.run.cancel", "major": 1, "contract": "agent.run.cancel@1", "mode": "stateful", "service": "default-agent-harness", "authority": "agent-runs-main", "priority": 100 }
+  ],
+  "consumes": {
+    "required": [
+      { "capability": "blob.put", "major": 1, "contract": "blob.put@1" }
+    ]
+  },
+  "permissions": ["exec:agent", "fs:write"],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 200 },
+  "resources": { "memory_mb": 256, "cpu_weight": 30 }
+}

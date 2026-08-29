@@ -18,7 +18,11 @@
         "work.attach_evidence@1",
         "workspace.allocate@1",
         "workspace.release@1",
-        "workspace.get@1"
+        "workspace.get@1",
+        "agent.run@1",
+        "agent.run.get@1",
+        "agent.run.query@1",
+        "agent.run.cancel@1"
       ]
     },
     "org.vibe.event.journal": {
@@ -32,6 +36,12 @@
     },
     "org.vibe.workspace": {
       "capabilities": []
+    },
+    "org.vibe.agent.harness": {
+      "capabilities": [
+        "blob.put@1"
+      ],
+      "service_authority": true
     }
   }
 }

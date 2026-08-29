@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "agent.run.get@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "agent_run_id": { "type": "string" } },
+    "required": ["agent_run_id"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": { "agent_run": { "type": "object" } },
+    "required": ["agent_run"]
+  }
+}

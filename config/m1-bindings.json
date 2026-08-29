@@ -71,6 +71,30 @@
       "major": 1,
       "service": "default-workspace",
       "authority": "workspace-main"
+    },
+    {
+      "capability": "agent.run",
+      "major": 1,
+      "service": "default-agent-harness",
+      "authority": "agent-runs-main"
+    },
+    {
+      "capability": "agent.run.get",
+      "major": 1,
+      "service": "default-agent-harness",
+      "authority": "agent-runs-main"
+    },
+    {
+      "capability": "agent.run.query",
+      "major": 1,
+      "service": "default-agent-harness",
+      "authority": "agent-runs-main"
+    },
+    {
+      "capability": "agent.run.cancel",
+      "major": 1,
+      "service": "default-agent-harness",
+      "authority": "agent-runs-main"
     }
   ]
 }
