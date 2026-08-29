@@ -116,6 +116,24 @@ func run(args []string) error {
 		default:
 			return fmt.Errorf("unknown agent subcommand %q", args[1])
 		}
+	case "artifact":
+		switch args[1] {
+		case "collect-diff":
+			return artifactCollectDiff(*socket, *identity, *token, args[2:])
+		case "show":
+			return artifactShow(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown artifact subcommand %q", args[1])
+		}
+	case "tool":
+		switch args[1] {
+		case "run":
+			return toolRun(*socket, *identity, *token, args[2:])
+		case "show":
+			return toolShow(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown tool subcommand %q", args[1])
+		}
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -491,5 +509,179 @@ func agentCancel(socket, identity, token string, args []string) error {
 		return err
 	}
 	fmt.Printf("status %s\n", out.AgentRun.Status)
+	return nil
+}
+
+// --- M1.4: artifact + tool ---
+
+type artifactView struct {
+	ID            string `json:"id"`
+	WorkContextID string `json:"work_context_id"`
+	Kind          string `json:"kind"`
+	BlobURI       string `json:"blob_uri"`
+	Summary       struct {
+		FilesChanged int      `json:"files_changed"`
+		Insertions   int      `json:"insertions"`
+		Deletions    int      `json:"deletions"`
+		Files        []string `json:"files"`
+	} `json:"summary"`
+}
+type artifactResponse struct {
+	Artifact artifactView `json:"artifact"`
+}
+
+func artifactCollectDiff(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("artifact collect-diff requires <work-context-id>")
+	}
+	wcID := args[0]
+	fs := flag.NewFlagSet("artifact collect-diff", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	workspace := fs.String("workspace", "", "workspace path")
+	baseRef := fs.String("base-ref", "", "base ref (default HEAD)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *workspace == "" {
+		return fmt.Errorf("-workspace is required")
+	}
+	payload := map[string]string{"work_context_id": wcID, "workspace_path": *workspace}
+	if *baseRef != "" {
+		payload["base_ref"] = *baseRef
+	}
+	resp, err := invoke(socket, identity, token, command("artifact.collect_diff", payload))
+	if err != nil {
+		return err
+	}
+	var out artifactResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	a := out.Artifact
+	fmt.Printf("artifact %s  files_changed %d  +%d -%d  blob %s\n",
+		a.ID, a.Summary.FilesChanged, a.Summary.Insertions, a.Summary.Deletions, a.BlobURI)
+	return nil
+}
+
+func artifactShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("artifact show requires <artifact-id>")
+	}
+	fs := flag.NewFlagSet("artifact show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "artifact.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"artifact_id": args[0]})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out artifactResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	a := out.Artifact
+	fmt.Printf("id %s\nkind %s\nblob_uri %s\nfiles_changed %d\n", a.ID, a.Kind, a.BlobURI, a.Summary.FilesChanged)
+	return nil
+}
+
+type toolRunView struct {
+	ID            string   `json:"id"`
+	WorkContextID string   `json:"work_context_id"`
+	Label         string   `json:"label"`
+	Command       []string `json:"command"`
+	ExitCode      int      `json:"exit_code"`
+	Outcome       string   `json:"outcome"`
+	StdoutURI     string   `json:"stdout_uri"`
+	StderrURI     string   `json:"stderr_uri"`
+	Fingerprint   string   `json:"fingerprint"`
+}
+type toolRunResponse struct {
+	ToolRun toolRunView `json:"tool_run"`
+}
+
+func toolRun(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("tool run requires <work-context-id>")
+	}
+	wcID := args[0]
+	// split flags (before "--") from the command argv (after "--")
+	sep := -1
+	for i, a := range args {
+		if a == "--" {
+			sep = i
+			break
+		}
+	}
+	if sep < 0 || sep == len(args)-1 {
+		return fmt.Errorf("tool run requires `-- <command> [args...]`")
+	}
+	flagArgs, cmdArgv := args[1:sep], args[sep+1:]
+	fs := flag.NewFlagSet("tool run", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	workspace := fs.String("workspace", "", "workspace path")
+	label := fs.String("label", "", "evidence label, e.g. build|test")
+	timeoutMS := fs.Int("timeout-ms", 0, "timeout in ms (0 = default)")
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
+	if *workspace == "" || *label == "" {
+		return fmt.Errorf("-workspace and -label are required")
+	}
+	payload := map[string]any{
+		"work_context_id": wcID, "workspace_path": *workspace, "label": *label, "command": cmdArgv,
+	}
+	if *timeoutMS > 0 {
+		payload["timeout_ms"] = *timeoutMS
+	}
+	resp, err := invoke(socket, identity, token, command("tool.run", payload))
+	if err != nil {
+		return err
+	}
+	var out toolRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	tr := out.ToolRun
+	fp := tr.Fingerprint
+	if len(fp) > 12 {
+		fp = fp[:12]
+	}
+	fmt.Printf("tool_run %s  outcome %s  exit %d  fp %s  stdout %s\n", tr.ID, tr.Outcome, tr.ExitCode, fp, tr.StdoutURI)
+	return nil
+}
+
+func toolShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("tool show requires <tool-run-id>")
+	}
+	fs := flag.NewFlagSet("tool show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "tool.run.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"tool_run_id": args[0]})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out toolRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	tr := out.ToolRun
+	fmt.Printf("id %s\nlabel %s\noutcome %s\nexit_code %d\nfingerprint %s\nstdout_uri %s\nstderr_uri %s\n",
+		tr.ID, tr.Label, tr.Outcome, tr.ExitCode, tr.Fingerprint, tr.StdoutURI, tr.StderrURI)
 	return nil
 }

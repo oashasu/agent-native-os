@@ -11,3 +11,4 @@
 /plugins/**/data/
 fixtures/sample-java-project/target/
 go.work.sum
+/vibe

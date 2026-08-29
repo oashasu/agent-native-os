@@ -95,6 +95,42 @@
       "major": 1,
       "service": "default-agent-harness",
       "authority": "agent-runs-main"
+    },
+    {
+      "capability": "artifact.collect_diff",
+      "major": 1,
+      "service": "default-artifact",
+      "authority": "artifact-main"
+    },
+    {
+      "capability": "artifact.get",
+      "major": 1,
+      "service": "default-artifact",
+      "authority": "artifact-main"
+    },
+    {
+      "capability": "artifact.query",
+      "major": 1,
+      "service": "default-artifact",
+      "authority": "artifact-main"
+    },
+    {
+      "capability": "tool.run",
+      "major": 1,
+      "service": "default-tool-runner",
+      "authority": "toolruns-main"
+    },
+    {
+      "capability": "tool.run.get",
+      "major": 1,
+      "service": "default-tool-runner",
+      "authority": "toolruns-main"
+    },
+    {
+      "capability": "tool.run.query",
+      "major": 1,
+      "service": "default-tool-runner",
+      "authority": "toolruns-main"
     }
   ]
 }

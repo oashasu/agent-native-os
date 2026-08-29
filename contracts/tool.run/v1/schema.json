@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "tool.run@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": {
+        "type": "string"
+      },
+      "workspace_path": {
+        "type": "string"
+      },
+      "label": {
+        "type": "string"
+      },
+      "command": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1
+      },
+      "env_allowlist": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timeout_ms": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "work_context_id",
+      "workspace_path",
+      "label",
+      "command"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "tool_run": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "tool_run"
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "artifact.collect_diff@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": {
+        "type": "string"
+      },
+      "workspace_path": {
+        "type": "string"
+      },
+      "base_ref": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "work_context_id",
+      "workspace_path"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "artifact": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "artifact"
+    ]
+  }
+}
