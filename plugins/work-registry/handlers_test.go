@@ -64,7 +64,9 @@ func TestCreateThenGetByTaskAndByContext(t *testing.T) {
 			t.Fatalf("get %v: %+v", q, gperr)
 		}
 		gb, _ := json.Marshal(gout)
-		var gr struct{ Task Task `json:"task"` }
+		var gr struct {
+			Task Task `json:"task"`
+		}
 		_ = json.Unmarshal(gb, &gr)
 		if gr.Task.ID != cr.Task.ID {
 			t.Fatalf("get %v returned %s", q, gr.Task.ID)
@@ -82,5 +84,78 @@ func TestGetRequiresExactlyOneSelector(t *testing.T) {
 	_, perr = getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"task_id": "unknown"})})
 	if perr == nil || perr.Code != "NOT_FOUND" {
 		t.Fatalf("want NOT_FOUND for unknown task, got %+v", perr)
+	}
+}
+
+func createForTransition(t *testing.T, s *Store, dir string) (Task, WorkContext) {
+	t.Helper()
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]any{"title": "x", "goal": "y", "repo": "r"})
+	out, perr := createHandler(s)(env)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	b, _ := json.Marshal(out)
+	var cr struct {
+		Task        Task        `json:"task"`
+		WorkContext WorkContext `json:"work_context"`
+	}
+	_ = json.Unmarshal(b, &cr)
+	return cr.Task, cr.WorkContext
+}
+
+func transition(t *testing.T, s *Store, dir, wcID, to string, expVer int) *protocol.Error {
+	t.Helper()
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]any{"work_context_id": wcID, "to": to, "expected_version": expVer})
+	_, perr := transitionHandler(s)(env)
+	return perr
+}
+
+func TestTransitionHappyPath(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	task, wc := createForTransition(t, s, dir)
+	if perr := transition(t, s, dir, wc.ID, "IN_PROGRESS", task.Version); perr != nil {
+		t.Fatalf("PLANNED->IN_PROGRESS: %+v", perr)
+	}
+	if perr := transition(t, s, dir, wc.ID, "IN_REVIEW", task.Version+1); perr != nil {
+		t.Fatalf("IN_PROGRESS->IN_REVIEW: %+v", perr)
+	}
+	if perr := transition(t, s, dir, wc.ID, "DONE", task.Version+2); perr != nil {
+		t.Fatalf("IN_REVIEW->DONE: %+v", perr)
+	}
+}
+
+func TestTransitionRejectsIllegalJump(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	task, wc := createForTransition(t, s, dir)
+	perr := transition(t, s, dir, wc.ID, "DONE", task.Version)
+	if perr == nil || perr.Code != "ILLEGAL_TRANSITION" {
+		t.Fatalf("PLANNED->DONE must be rejected, got %+v", perr)
+	}
+}
+
+func TestTransitionRejectsStaleVersion(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	task, wc := createForTransition(t, s, dir)
+	_ = transition(t, s, dir, wc.ID, "IN_PROGRESS", task.Version)
+	perr := transition(t, s, dir, wc.ID, "IN_REVIEW", task.Version)
+	if perr == nil || perr.Code != "CONFLICT" {
+		t.Fatalf("stale expected_version must be CONFLICT, got %+v", perr)
+	}
+}
+
+func TestTransitionRequiresExpectedVersion(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_, wc := createForTransition(t, s, dir)
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]any{"work_context_id": wc.ID, "to": "IN_PROGRESS"})
+	_, perr := transitionHandler(s)(env)
+	if perr == nil || perr.Code != "INVALID" {
+		t.Fatalf("missing expected_version must be INVALID, got %+v", perr)
 	}
 }

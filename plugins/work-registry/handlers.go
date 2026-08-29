@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/example/agent-native-microkernel/sdk/go/fencing"
 	"github.com/example/agent-native-microkernel/sdk/go/pluginhost"
@@ -64,6 +65,45 @@ func getHandler(s *Store) pluginhost.Handler {
 		}
 		if !ok {
 			return nil, &protocol.Error{Code: "NOT_FOUND", Message: "work item not found"}
+		}
+		return map[string]any{"task": task, "work_context": wc}, nil
+	}
+}
+
+type transitionRequest struct {
+	WorkContextID   string `json:"work_context_id"`
+	To              string `json:"to"`
+	ExpectedVersion *int   `json:"expected_version"`
+}
+
+func transitionHandler(s *Store) pluginhost.Handler {
+	return func(e protocol.Envelope) (any, *protocol.Error) {
+		var q transitionRequest
+		if err := json.Unmarshal(e.Payload, &q); err != nil {
+			return nil, &protocol.Error{Code: "INVALID", Message: "bad request"}
+		}
+		validStatus := q.To == string(StatusInProgress) || q.To == string(StatusInReview) || q.To == string(StatusDone) || q.To == string(StatusFailed)
+		if q.WorkContextID == "" || !validStatus || q.ExpectedVersion == nil {
+			return nil, &protocol.Error{Code: "INVALID", Message: "work_context_id, valid to, and expected_version are required"}
+		}
+		var task *Task
+		var wc *WorkContext
+		err := fencing.WithWriteFence(e, func() error {
+			var err error
+			task, wc, err = s.Transition(q.WorkContextID, Status(q.To), *q.ExpectedVersion)
+			return err
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrNotFound):
+				return nil, &protocol.Error{Code: "NOT_FOUND", Message: err.Error()}
+			case errors.Is(err, ErrConflict):
+				return nil, &protocol.Error{Code: "CONFLICT", Message: err.Error()}
+			case errors.Is(err, ErrIllegalTransition):
+				return nil, &protocol.Error{Code: "ILLEGAL_TRANSITION", Message: err.Error()}
+			default:
+				return nil, &protocol.Error{Code: "IO", Message: err.Error(), Retryable: true}
+			}
 		}
 		return map[string]any{"task": task, "work_context": wc}, nil
 	}
