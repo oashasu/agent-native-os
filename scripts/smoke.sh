@@ -23,6 +23,16 @@ restart_kernel() {
   KPID=$!
   for _ in $(seq 1 300); do [ -S "$SOCK" ] && break; sleep 0.03; done
   [ -S "$SOCK" ] || { echo "FAIL: kernel socket did not appear"; cat "$DATA/kernel.log"; exit 1; }
+  # The socket binds after the plugin start loop, but routing to a just-registered
+  # stateful provider can still race for a beat. Probe a dependency-free stateful
+  # query until it succeeds before returning.
+  for _ in $(seq 1 200); do
+    .bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
+      -cap event.journal.replay -kind query -service default-event-journal \
+      -authority journal-main -payload '{}' >/dev/null 2>&1 && return 0
+    sleep 0.05
+  done
+  echo "FAIL: kernel did not become query-ready after restart"; cat "$DATA/kernel.log"; exit 1
 }
 export SOCK DATA TOKEN KPID
 export -f restart_kernel

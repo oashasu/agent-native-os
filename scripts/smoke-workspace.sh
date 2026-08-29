@@ -26,7 +26,12 @@ WT_BRANCH="$(echo "$alloc_out" | sed -n 's/.*branch \([^ ]*\).*/\1/p')"
 
 restart_kernel
 
-show_out="$($V workspace show "$WS_ID")"
+show_out=""
+for _ in $(seq 1 50); do
+  show_out="$($V workspace show "$WS_ID" 2>/dev/null)"
+  echo "$show_out" | grep -q 'status.*ALLOCATED' && break
+  sleep 0.1
+done
 echo "$show_out" | grep -q "$WS_ID" || { echo "FAIL: workspace lost on restart: $show_out"; exit 1; }
 echo "$show_out" | grep -q 'status.*ALLOCATED' || { echo "FAIL: workspace status changed on restart: $show_out"; exit 1; }
 

@@ -37,6 +37,12 @@ $RAW -cap blob.get -kind query -service default-blob -authority blob-main -paylo
 grep -q 'agent was here' "$WT/App.java" || { echo "FAIL: mock agent did not change the worktree file"; exit 1; }
 
 restart_kernel
-$V agent show "$RUN_ID" | grep -q 'COMPLETED' || { echo "FAIL: run lost on restart"; exit 1; }
+run_back=""
+for _ in $(seq 1 50); do
+  run_back="$($V agent show "$RUN_ID" 2>/dev/null)"
+  echo "$run_back" | grep -q 'COMPLETED' && break
+  sleep 0.1
+done
+echo "$run_back" | grep -q 'COMPLETED' || { echo "FAIL: run lost on restart: $run_back"; cat "$DATA/kernel.log"; exit 1; }
 
 echo "M1.3 AGENT SMOKE: OK"
