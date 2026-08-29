@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "blob.stat@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "uri": { "type": "string" } },
+    "required": ["uri"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "exists": { "type": "boolean" },
+      "size": { "type": "integer" }
+    },
+    "required": ["exists", "size"]
+  }
+}

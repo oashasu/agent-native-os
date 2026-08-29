@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "work.attach_evidence@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": { "type": "string" },
+      "kind": { "type": "string", "enum": ["build", "test", "review"] },
+      "source_capability": { "type": "string" },
+      "source_id": { "type": "string" },
+      "outcome": { "type": "string", "enum": ["PASS", "FAIL"] },
+      "content_hash": { "type": "string" },
+      "expected_version": { "type": "integer" }
+    },
+    "required": ["work_context_id", "kind", "source_capability", "source_id", "outcome", "expected_version"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": { "evidence_ref": { "type": "object" }, "work_context": { "type": "object" } },
+    "required": ["evidence_ref", "work_context"]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "blob.get@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "uri": { "type": "string" } },
+    "required": ["uri"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "content_base64": { "type": "string" },
+      "size": { "type": "integer" }
+    },
+    "required": ["content_base64", "size"]
+  }
+}

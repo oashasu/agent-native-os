@@ -6,10 +6,23 @@
     "local-cli": {
       "capabilities": [
         "event.journal.append@1",
-        "event.journal.replay@1"
+        "event.journal.replay@1",
+        "blob.put@1",
+        "blob.get@1",
+        "blob.stat@1",
+        "work.create@1",
+        "work.get@1",
+        "work.transition@1",
+        "work.attach_evidence@1"
       ]
     },
     "org.vibe.event.journal": {
+      "capabilities": []
+    },
+    "org.vibe.blob": {
+      "capabilities": []
+    },
+    "org.vibe.work.registry": {
       "capabilities": []
     }
   }

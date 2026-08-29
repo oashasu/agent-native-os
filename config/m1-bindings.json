@@ -1,6 +1,13 @@
 {
   "bindings": [
     { "capability": "event.journal.append", "major": 1, "service": "default-event-journal", "authority": "journal-main" },
-    { "capability": "event.journal.replay", "major": 1, "service": "default-event-journal", "authority": "journal-main" }
+    { "capability": "event.journal.replay", "major": 1, "service": "default-event-journal", "authority": "journal-main" },
+    { "capability": "blob.put", "major": 1, "service": "default-blob", "authority": "blob-main" },
+    { "capability": "blob.get", "major": 1, "service": "default-blob", "authority": "blob-main" },
+    { "capability": "blob.stat", "major": 1, "service": "default-blob", "authority": "blob-main" },
+    { "capability": "work.create", "major": 1, "service": "default-work-registry", "authority": "work-main" },
+    { "capability": "work.get", "major": 1, "service": "default-work-registry", "authority": "work-main" },
+    { "capability": "work.transition", "major": 1, "service": "default-work-registry", "authority": "work-main" },
+    { "capability": "work.attach_evidence", "major": 1, "service": "default-work-registry", "authority": "work-main" }
   ]
 }
