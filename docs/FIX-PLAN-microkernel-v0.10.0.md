@@ -11,12 +11,12 @@
 | P0 | FIX-1 内核启动韧性 | ✅ 完成（TDD + 致残 + E2E smoke） | `6d78bbf` |
 | P0 | FIX-2 注册表回收死亡 runtime | ✅ 完成（TDD + 致残 x2） | `b3c1be6` |
 | P0 | FIX-3 写超时 / 事件扇出隔离 / stream 段隔离 | ✅ 完成（TDD + 致残 x3，`-race` 干净） | `d83e67c` |
-| P1 | FIX-4 composition fitness function | ⏳ 随首个 composition 插件 |  |
-| P1 | FIX-5 契约与内核分家 | ⏳ 竖切设计定稿后 |  |
+| P1 | FIX-4 composition fitness function | ⏳ **M1.0 落 `check_composition.py` seed**（M1.6 绑 engineering-workflow） | 见 `plans/2026-08-29-m1-0-scaffold.md` Task 7 |
+| P1 | FIX-5 契约与内核分家 | ⏳ **M1.0**（重定性：kernel/contracts/ 为 kernel 自测 fixture，物理不动 kernel 源；产品契约进仓根 contracts/） | 见 M1.0 plan Task 2 |
 | P2 | FIX-6 ~ FIX-15 硬化项 | ⏳ 按需穿插 |  |
 
 P0 全部落地后 `bash scripts/test.sh` 全绿，含 M0.5 ADVERSARIAL QUALIFICATION: PASSED。
-下一步：竖切设计定稿（A2 决策 + 插件边界图），需先定 2 个待决问题（竖切范围 / Agent 真实度）。
+竖切设计已冻结（`M1-DESIGN.md`，Codex 两轮评审）。M1.0 实现计划：`plans/2026-08-29-m1-0-scaffold.md`。
 
 ---
 
