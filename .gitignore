@@ -6,3 +6,8 @@
 **/.vibe-fences/
 # rust target dirs (reference material)
 /reference/**/target/
+/.bin/
+/plugins/bin/
+/plugins/**/data/
+fixtures/sample-java-project/target/
+go.work.sum
