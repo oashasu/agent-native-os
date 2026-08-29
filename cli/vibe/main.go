@@ -79,7 +79,7 @@ func run(args []string) error {
 		return fmt.Errorf("-token or VIBE_CLIENT_TOKEN required")
 	}
 	if len(args) < 2 {
-		return fmt.Errorf("usage: vibe [global flags] <task|workspace> <subcommand> ...")
+		return fmt.Errorf("usage: vibe [global flags] <task|workspace|agent> <subcommand> ...")
 	}
 
 	switch args[0] {
@@ -104,6 +104,17 @@ func run(args []string) error {
 			return workspaceRelease(*socket, *identity, *token, args[2:])
 		default:
 			return fmt.Errorf("unknown workspace subcommand %q", args[1])
+		}
+	case "agent":
+		switch args[1] {
+		case "run":
+			return agentRun(*socket, *identity, *token, args[2:])
+		case "show":
+			return agentShow(*socket, *identity, *token, args[2:])
+		case "cancel":
+			return agentCancel(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown agent subcommand %q", args[1])
 		}
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
@@ -330,4 +341,155 @@ func command(capability string, payload any) protocol.Envelope {
 		Deadline: time.Now().Add(30 * time.Second).Format(time.RFC3339Nano),
 		Payload:  protocol.NewPayload(payload),
 	}
+}
+
+type agentRunView struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	Provider      string `json:"provider"`
+	FrameCount    int    `json:"frame_count"`
+	RawSessionRef string `json:"raw_session_ref"`
+}
+
+type agentRunResponse struct {
+	AgentRun agentRunView `json:"agent_run"`
+	StreamID string       `json:"stream_id"`
+}
+
+type agentFrameView struct {
+	Kind  string `json:"kind"`
+	Text  string `json:"text"`
+	Index int    `json:"index"`
+}
+
+func agentRun(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("agent run requires <work-context-id>")
+	}
+	wcID := args[0]
+	fs := flag.NewFlagSet("agent run", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	workspace := fs.String("workspace", "", "workspace path")
+	prompt := fs.String("prompt", "", "agent prompt")
+	steps := fs.Int("steps", 3, "mock steps")
+	failAt := fs.Int("fail-at", 0, "mock failure step")
+	writeFile := fs.String("write-file", "", "relative workspace file to append")
+	writeContent := fs.String("write-content", "", "content to append")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *workspace == "" || *prompt == "" {
+		return fmt.Errorf("-workspace and -prompt are required")
+	}
+	payload := map[string]any{
+		"work_context_id": wcID,
+		"workspace_path":  *workspace,
+		"prompt":          *prompt,
+		"provider":        "mock",
+		"mock_steps":      *steps,
+		"mock_fail_at":    *failAt,
+	}
+	if *writeFile != "" {
+		payload["mock_write_file"] = *writeFile
+	}
+	if *writeContent != "" {
+		payload["mock_write_content"] = *writeContent
+	}
+	req := command("agent.run", payload)
+	accepted, err := invokeStream(socket, identity, token, req, func(f protocol.Envelope) {
+		if f.Kind != protocol.KindStreamData {
+			return
+		}
+		var sf protocol.StreamFrame
+		if json.Unmarshal(f.Payload, &sf) != nil {
+			return
+		}
+		var af agentFrameView
+		if json.Unmarshal(sf.Data, &af) == nil {
+			fmt.Printf("» %s\n", af.Text)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	var out agentRunResponse
+	if err := json.Unmarshal(accepted.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("agent_run %s  stream %s\n", out.AgentRun.ID, out.StreamID)
+	for i := 0; i < 50; i++ {
+		run, err := fetchAgentRun(socket, identity, token, out.AgentRun.ID)
+		if err != nil {
+			return err
+		}
+		if run.Status != StatusRunningCLI {
+			fmt.Printf("status %s  raw_session_ref %s\n", run.Status, run.RawSessionRef)
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("agent run %s did not reach a terminal status", out.AgentRun.ID)
+}
+
+const StatusRunningCLI = "RUNNING"
+
+func fetchAgentRun(socket, identity, token, runID string) (agentRunView, error) {
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "agent.run.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"agent_run_id": runID})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return agentRunView{}, err
+	}
+	var out agentRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return agentRunView{}, err
+	}
+	return out.AgentRun, nil
+}
+
+func agentShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("agent show requires <agent-run-id>")
+	}
+	runID := args[0]
+	fs := flag.NewFlagSet("agent show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "agent.run.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"agent_run_id": runID})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out agentRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("id %s\n", out.AgentRun.ID)
+	fmt.Printf("status %s\n", out.AgentRun.Status)
+	fmt.Printf("provider %s\n", out.AgentRun.Provider)
+	fmt.Printf("frame_count %d\n", out.AgentRun.FrameCount)
+	fmt.Printf("raw_session_ref %s\n", out.AgentRun.RawSessionRef)
+	return nil
+}
+
+func agentCancel(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("agent cancel requires <agent-run-id>")
+	}
+	resp, err := invoke(socket, identity, token, command("agent.run.cancel", map[string]string{"agent_run_id": args[0]}))
+	if err != nil {
+		return err
+	}
+	var out agentRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("status %s\n", out.AgentRun.Status)
+	return nil
 }

@@ -68,5 +68,6 @@ got_blob="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
 echo "$got_blob" | grep -q "$(printf 'diff-bytes' | base64)" || { echo "FAIL: blob did not survive restart: $got_blob"; exit 1; }
 
 source scripts/smoke-workspace.sh
+source scripts/smoke-agent.sh
 
 echo "M1 SMOKE: PASSED"
