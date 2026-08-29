@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "workspace.allocate@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {"type":"object","additionalProperties":false,"properties":{"work_context_id":{"type":"string"},"repo":{"type":"string"},"base_ref":{"type":"string"}},"required":["work_context_id","repo"]},
+  "response": {"type":"object","additionalProperties":true,"properties":{"workspace":{"type":"object"}},"required":["workspace"]}
+}
