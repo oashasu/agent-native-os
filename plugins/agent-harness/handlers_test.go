@@ -85,3 +85,59 @@ func TestAgentRunHandlerRejectsMissingFields(t *testing.T) {
 		t.Fatalf("want INVALID, got %+v", perr)
 	}
 }
+
+func TestGetAndQueryHandlers(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_ = s.RecordStarted(AgentRun{ID: "r1", WorkContextID: "wc-1", Status: StatusRunning, StartedAt: "t1"})
+	_ = s.RecordCompleted("r1", StatusCompleted, "blob://sha256/x", 2, nil)
+
+	gout, perr := getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"agent_run_id": "r1"})})
+	if perr != nil {
+		t.Fatalf("get: %+v", perr)
+	}
+	gb, _ := json.Marshal(gout)
+	var gr struct {
+		AgentRun AgentRun `json:"agent_run"`
+	}
+	_ = json.Unmarshal(gb, &gr)
+	if gr.AgentRun.Status != StatusCompleted {
+		t.Fatalf("get returned: %+v", gr.AgentRun)
+	}
+
+	qout, _ := queryHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"work_context_id": "wc-1"})})
+	qb, _ := json.Marshal(qout)
+	var qr struct {
+		AgentRuns []AgentRun `json:"agent_runs"`
+	}
+	_ = json.Unmarshal(qb, &qr)
+	if len(qr.AgentRuns) != 1 {
+		t.Fatalf("query returned %d runs", len(qr.AgentRuns))
+	}
+
+	_, perr = getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"agent_run_id": "nope"})})
+	if perr == nil || perr.Code != "NOT_FOUND" {
+		t.Fatalf("want NOT_FOUND, got %+v", perr)
+	}
+}
+
+func TestCancelHandlerMarksRunCancelled(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	env := fencedEnv(t, dir)
+	_ = s.RecordStarted(AgentRun{ID: "r1", Status: StatusRunning, StartedAt: "t1"})
+	env.Payload = protocol.NewPayload(map[string]string{"agent_run_id": "r1"})
+	out, perr := cancelHandler(s)(env)
+	if perr != nil {
+		t.Fatalf("cancel: %+v", perr)
+	}
+	_ = out
+	got, _ := s.GetByID("r1")
+	if got.Status != StatusCancelled {
+		t.Fatalf("run not cancelled: %+v", got)
+	}
+	_, perr = cancelHandler(s)(env)
+	if perr == nil || perr.Code != "CONFLICT" {
+		t.Fatalf("second cancel: %+v", perr)
+	}
+}

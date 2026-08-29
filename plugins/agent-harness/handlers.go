@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/example/agent-native-microkernel/sdk/go/fencing"
@@ -88,4 +89,58 @@ func runOnce(ctx context.Context, d runDeps, ar AgentRun, spec RunSpec, out chan
 		uri = ""
 	}
 	_ = d.Persist(ar.ID, tr.Result.Status, uri, len(tr.Frames), tr.Result.ProviderMeta)
+}
+
+type agentRunIDRequest struct {
+	AgentRunID string `json:"agent_run_id"`
+}
+
+type agentRunQueryRequest struct {
+	WorkContextID string `json:"work_context_id"`
+}
+
+func getHandler(s *Store) pluginhost.Handler {
+	return func(e protocol.Envelope) (any, *protocol.Error) {
+		var q agentRunIDRequest
+		if err := json.Unmarshal(e.Payload, &q); err != nil || q.AgentRunID == "" {
+			return nil, &protocol.Error{Code: "INVALID", Message: "agent_run_id is required"}
+		}
+		ar, ok := s.GetByID(q.AgentRunID)
+		if !ok {
+			return nil, &protocol.Error{Code: "NOT_FOUND", Message: "agent run not found"}
+		}
+		return map[string]any{"agent_run": ar}, nil
+	}
+}
+
+func queryHandler(s *Store) pluginhost.Handler {
+	return func(e protocol.Envelope) (any, *protocol.Error) {
+		var q agentRunQueryRequest
+		if err := json.Unmarshal(e.Payload, &q); err != nil || q.WorkContextID == "" {
+			return nil, &protocol.Error{Code: "INVALID", Message: "work_context_id is required"}
+		}
+		return map[string]any{"agent_runs": s.QueryByContext(q.WorkContextID)}, nil
+	}
+}
+
+func cancelHandler(s *Store) pluginhost.Handler {
+	return func(e protocol.Envelope) (any, *protocol.Error) {
+		var q agentRunIDRequest
+		if err := json.Unmarshal(e.Payload, &q); err != nil || q.AgentRunID == "" {
+			return nil, &protocol.Error{Code: "INVALID", Message: "agent_run_id is required"}
+		}
+		err := fencing.WithWriteFence(e, func() error { return s.RecordCancelled(q.AgentRunID) })
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrNotFound):
+				return nil, &protocol.Error{Code: "NOT_FOUND", Message: err.Error()}
+			case errors.Is(err, ErrAlreadyTerminal):
+				return nil, &protocol.Error{Code: "CONFLICT", Message: err.Error()}
+			default:
+				return nil, &protocol.Error{Code: "IO", Message: err.Error(), Retryable: true}
+			}
+		}
+		ar, _ := s.GetByID(q.AgentRunID)
+		return map[string]any{"agent_run": ar}, nil
+	}
 }
