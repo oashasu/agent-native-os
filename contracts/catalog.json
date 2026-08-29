@@ -24,5 +24,8 @@
   "review.request@1": "review.request/v1/schema.json",
   "review.decide@1": "review.decide/v1/schema.json",
   "review.get@1": "review.get/v1/schema.json",
-  "review.query@1": "review.query/v1/schema.json"
+  "review.query@1": "review.query/v1/schema.json",
+  "session.seal@1": "session.seal/v1/schema.json",
+  "session.get@1": "session.get/v1/schema.json",
+  "session.query@1": "session.query/v1/schema.json"
 }
