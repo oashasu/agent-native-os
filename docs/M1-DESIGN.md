@@ -218,7 +218,9 @@ WorkContext                   # 瘦身：不再持有跨插件 canonical ID 数�
 ├── id
 ├── task_id
 ├── repo                      # 本地仓库路径（M1）
-├── active_workspace_ref      # {id, path, branch, base_commit} | null
+├── active_workspace_ref      # M1.1 落成 always-null 保留字段；WC↔workspace 关系是
+│                             # WorkspaceRef.work_context_id，由 workspace.get{work_context_id} 回答，
+│                             # 不写回 WorkContext（与"无 mirror ID"一致，M1.2 定）
 ├── evidence_refs[]           # EvidenceRef（例外：Work 层审核关系，但只存引用）
 └── version
 
@@ -320,7 +322,7 @@ RecoveryCheckpoint
 
 ```text
 work.get(task_id)
-+ workspace.get(active_workspace_ref)
++ workspace.get({work_context_id})
 + agent.run.query(work_context_id)
 + artifact.query(work_context_id)
 + tool.run.query(work_context_id)
