@@ -159,3 +159,48 @@ func TestTransitionRequiresExpectedVersion(t *testing.T) {
 		t.Fatalf("missing expected_version must be INVALID, got %+v", perr)
 	}
 }
+
+func TestAttachEvidenceAppendsRefAndBumpsWCVersion(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_, wc := createForTransition(t, s, dir)
+
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]any{
+		"work_context_id": wc.ID, "kind": "test", "source_capability": "tool.run@1",
+		"source_id": "TR-1", "outcome": "PASS", "content_hash": "abc", "expected_version": wc.Version,
+	})
+	out, perr := attachEvidenceHandler(s)(env)
+	if perr != nil {
+		t.Fatalf("attach: %+v", perr)
+	}
+	b, _ := json.Marshal(out)
+	var r struct {
+		EvidenceRef EvidenceRef `json:"evidence_ref"`
+		WorkContext WorkContext `json:"work_context"`
+	}
+	_ = json.Unmarshal(b, &r)
+	if r.EvidenceRef.Kind != "test" || r.EvidenceRef.Outcome != "PASS" || r.EvidenceRef.ID == "" {
+		t.Fatalf("evidence ref: %+v", r.EvidenceRef)
+	}
+	if len(r.WorkContext.EvidenceRefs) != 1 || r.WorkContext.Version != wc.Version+1 {
+		t.Fatalf("work context: %+v", r.WorkContext)
+	}
+}
+
+func TestAttachEvidenceStaleVersionConflicts(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_, wc := createForTransition(t, s, dir)
+	env := fencedEnv(t, dir)
+	base := map[string]any{"work_context_id": wc.ID, "kind": "build", "source_capability": "tool.run@1", "source_id": "TR-x", "outcome": "PASS"}
+	base["expected_version"] = wc.Version
+	env.Payload = protocol.NewPayload(base)
+	_, _ = attachEvidenceHandler(s)(env)
+	base["expected_version"] = wc.Version
+	env.Payload = protocol.NewPayload(base)
+	_, perr := attachEvidenceHandler(s)(env)
+	if perr == nil || perr.Code != "CONFLICT" {
+		t.Fatalf("stale wc version must CONFLICT, got %+v", perr)
+	}
+}

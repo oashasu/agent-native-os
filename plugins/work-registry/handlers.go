@@ -108,3 +108,48 @@ func transitionHandler(s *Store) pluginhost.Handler {
 		return map[string]any{"task": task, "work_context": wc}, nil
 	}
 }
+
+type attachEvidenceRequest struct {
+	WorkContextID    string `json:"work_context_id"`
+	Kind             string `json:"kind"`
+	SourceCapability string `json:"source_capability"`
+	SourceID         string `json:"source_id"`
+	Outcome          string `json:"outcome"`
+	ContentHash      string `json:"content_hash"`
+	ExpectedVersion  *int   `json:"expected_version"`
+}
+
+func attachEvidenceHandler(s *Store) pluginhost.Handler {
+	return func(e protocol.Envelope) (any, *protocol.Error) {
+		var q attachEvidenceRequest
+		if err := json.Unmarshal(e.Payload, &q); err != nil {
+			return nil, &protocol.Error{Code: "INVALID", Message: "bad request"}
+		}
+		validKind := q.Kind == "build" || q.Kind == "test" || q.Kind == "review"
+		validOutcome := q.Outcome == "PASS" || q.Outcome == "FAIL"
+		if q.WorkContextID == "" || !validKind || q.SourceCapability == "" || q.SourceID == "" || !validOutcome || q.ExpectedVersion == nil {
+			return nil, &protocol.Error{Code: "INVALID", Message: "work_context_id, kind, source_capability, source_id, outcome and expected_version are required"}
+		}
+		var ev *EvidenceRef
+		var wc *WorkContext
+		err := fencing.WithWriteFence(e, func() error {
+			var err error
+			ev, wc, err = s.AttachEvidence(q.WorkContextID, EvidenceRef{
+				Kind: q.Kind, SourceCapability: q.SourceCapability, SourceID: q.SourceID,
+				Outcome: q.Outcome, ContentHash: q.ContentHash,
+			}, *q.ExpectedVersion)
+			return err
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrNotFound):
+				return nil, &protocol.Error{Code: "NOT_FOUND", Message: err.Error()}
+			case errors.Is(err, ErrConflict):
+				return nil, &protocol.Error{Code: "CONFLICT", Message: err.Error()}
+			default:
+				return nil, &protocol.Error{Code: "IO", Message: err.Error(), Retryable: true}
+			}
+		}
+		return map[string]any{"evidence_ref": ev, "work_context": wc}, nil
+	}
+}
