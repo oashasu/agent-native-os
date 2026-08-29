@@ -1,4 +1,7 @@
 {
   "event.journal.append@1": "event.journal.append/v1/schema.json",
-  "event.journal.replay@1": "event.journal.replay/v1/schema.json"
+  "event.journal.replay@1": "event.journal.replay/v1/schema.json",
+  "blob.put@1": "blob.put/v1/schema.json",
+  "blob.get@1": "blob.get/v1/schema.json",
+  "blob.stat@1": "blob.stat/v1/schema.json"
 }
