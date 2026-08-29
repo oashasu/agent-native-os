@@ -25,6 +25,13 @@ func TestResourcePluginHelper(t *testing.T) {
 		_ = h.Serve()
 		return
 	}
+	if id == "org.vibe.test.ephemeral" {
+		h := pluginhost.New(id, "test", "")
+		h.HandleQuery("demo.echo", 1, func(protocol.Envelope) (any, *protocol.Error) { return map[string]any{"ok": true}, nil })
+		go func() { time.Sleep(300 * time.Millisecond); os.Exit(0) }()
+		_ = h.Serve()
+		return
+	}
 	if id != "org.vibe.test.resource" {
 		return
 	}
@@ -84,6 +91,44 @@ func TestProviderHandshakeEnforcesContractKind(t *testing.T) {
 	if _, err := sup.Start(ctx, m, mp, ""); err == nil || !strings.Contains(err.Error(), "handler kind mismatch") {
 		t.Fatalf("provider with wrong operation kind admitted: %v", err)
 	}
+}
+
+func TestDeadRuntimeIsPrunedFromRegistry(t *testing.T) {
+	reg := registry.New()
+	meta := contractmeta.Metadata{Contract: "demo.echo@1", Kind: protocol.KindQuery}
+	reg.SetContractCatalog(&contractmeta.Catalog{
+		ByContract:   map[string]contractmeta.Metadata{"demo.echo@1": meta},
+		ByCapability: map[string]contractmeta.Metadata{"demo.echo@1": meta},
+	})
+	rt := router.New(reg, authz.New())
+	sup := New(reg, rt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := manifest.Manifest{
+		ManifestVersion: 1,
+		Plugin:          manifest.Plugin{ID: "org.vibe.test.ephemeral", Version: "1"},
+		Runtime:         manifest.Runtime{Protocol: protocol.RuntimeProtocol, Executable: os.Args[0], Args: []string{"-test.run=TestResourcePluginHelper"}},
+		Exports:         []manifest.Capability{{Name: "demo.echo", Major: 1, Contract: "demo.echo@1", Mode: "stateless"}},
+		Restart:         manifest.RestartPolicy{Mode: "never"},
+	}
+	mp := filepath.Join(t.TempDir(), "e.manifest.json")
+	if err := os.WriteFile(mp, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.Start(ctx, m, mp, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Providers("demo.echo", 1)) != 1 {
+		t.Fatalf("provider not registered at start: %d", len(reg.Providers("demo.echo", 1)))
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(reg.Providers("demo.echo", 1)) == 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("dead runtime left a stale provider entry in the registry")
 }
 
 func TestMarkManifestRejectedIsObservable(t *testing.T) {

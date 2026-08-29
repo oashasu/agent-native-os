@@ -297,7 +297,10 @@ func (s *Supervisor) watch(run *Runtime) {
 	} else {
 		s.setStatus(run.Manifest.Plugin.ID, StateFailed, "", "runtime exited")
 	}
+	// Dependents have now observed the loss (MarkHealth + reconcile); drop the
+	// dead runtime's registry entries so they do not accumulate across restarts.
 	s.reconcileDependencies()
+	s.reg.RemoveRuntime(run.ID)
 	rp := run.Manifest.Restart
 	if rp.Mode == "on_failure" && run.Attempts < rp.MaxAttempts && s.ctx != nil && s.ctx.Err() == nil {
 		d := time.Duration(rp.CooldownMS) * time.Millisecond

@@ -317,6 +317,30 @@ func (r *Registry) clearWriterIfUnhealthyLocked(runtimeID string) {
 	}
 }
 
+// RemoveRuntime prunes every Provider entry for a runtime that has exited. If
+// that runtime held an authority's active writer lease, the lease RuntimeID is
+// cleared while its epoch is preserved, so the next writer must still advance it.
+// Callers should MarkHealth(false) first so dependents observe the loss before
+// the entries disappear.
+func (r *Registry) RemoveRuntime(runtimeID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, ps := range r.providers {
+		kept := ps[:0]
+		for _, p := range ps {
+			if p.RuntimeID != runtimeID {
+				kept = append(kept, p)
+			}
+		}
+		if len(kept) == 0 {
+			delete(r.providers, k)
+		} else {
+			r.providers[k] = kept
+		}
+	}
+	r.clearWriterIfUnhealthyLocked(runtimeID)
+}
+
 func (r *Registry) MarkHealth(runtimeID string, healthy bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

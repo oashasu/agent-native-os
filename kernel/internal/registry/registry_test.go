@@ -1,10 +1,60 @@
 package registry
 
 import (
+	"strconv"
+	"testing"
+
 	"github.com/example/agent-native-microkernel/internal/manifest"
 	"github.com/example/agent-native-microkernel/sdk/go/protocol"
-	"testing"
 )
+
+func TestRemoveRuntimePrunesDeadProviders(t *testing.T) {
+	r := New()
+	if err := r.SetFenceRoot(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(id string, prio int) manifest.Manifest {
+		return manifest.Manifest{
+			Plugin:  manifest.Plugin{ID: id},
+			Runtime: manifest.Runtime{DataNamespace: "state/shared"},
+			Exports: []manifest.Capability{{Name: "work.create", Major: 1, Mode: "stateful", Service: "default", Authority: "main", Priority: prio}},
+		}
+	}
+	if err := r.RegisterRuntime(mk("a", 100), "ra"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterRuntime(mk("b", 50), "rb"); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := r.ResolveForKind("work.create", 1, "", "default", "main", protocol.KindCommand)
+	if err != nil || first.RuntimeID != "ra" {
+		t.Fatalf("want ra as active writer, got %+v %v", first, err)
+	}
+
+	r.MarkHealth("ra", false)
+	r.RemoveRuntime("ra")
+
+	if got := len(r.Providers("work.create", 1)); got != 1 {
+		t.Fatalf("dead provider not pruned: %d providers remain", got)
+	}
+	second, err := r.ResolveForKind("work.create", 1, "", "default", "main", protocol.KindCommand)
+	if err != nil || second.RuntimeID != "rb" || second.WriterEpoch <= first.WriterEpoch {
+		t.Fatalf("want fenced promotion to rb with advancing epoch, got %+v after epoch %d (err %v)", second, first.WriterEpoch, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		rid := "rb-restart-" + strconv.Itoa(i)
+		if err := r.RegisterRuntime(mk("b", 50), rid); err != nil {
+			t.Fatal(err)
+		}
+		r.MarkHealth(rid, false)
+		r.RemoveRuntime(rid)
+	}
+	if got := len(r.Providers("work.create", 1)); got != 1 {
+		t.Fatalf("provider list grew across restart churn: %d entries", got)
+	}
+}
 
 func TestStatelessProviderReplacement(t *testing.T) {
 	r := New()
