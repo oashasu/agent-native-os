@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "work.create@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "title": { "type": "string" },
+      "goal": { "type": "string" },
+      "scope": { "type": "string" },
+      "repo": { "type": "string" },
+      "acceptance_criteria": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "id": { "type": "string" }, "text": { "type": "string" } },
+          "required": ["id", "text"]
+        }
+      }
+    },
+    "required": ["title", "goal", "repo"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "task": { "type": "object" },
+      "work_context": { "type": "object" },
+      "idempotent_replay": { "type": "boolean" }
+    },
+    "required": ["task", "work_context"]
+  }
+}

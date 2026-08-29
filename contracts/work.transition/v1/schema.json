@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "work.transition@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": { "type": "string" },
+      "to": { "type": "string", "enum": ["IN_PROGRESS", "IN_REVIEW", "DONE", "FAILED"] },
+      "expected_version": { "type": "integer" }
+    },
+    "required": ["work_context_id", "to", "expected_version"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": { "task": { "type": "object" }, "work_context": { "type": "object" } },
+    "required": ["task", "work_context"]
+  }
+}

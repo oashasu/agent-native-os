@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "work.get@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "task_id": { "type": "string" }, "work_context_id": { "type": "string" } },
+    "required": []
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": { "task": { "type": "object" }, "work_context": { "type": "object" } },
+    "required": ["task", "work_context"]
+  }
+}
