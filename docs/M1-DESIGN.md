@@ -524,7 +524,7 @@ M1.1  org.vibe.blob（blob.put/get/stat）+ work-registry（Task/WorkContext/真
 M1.2  workspace-manager（git worktree） — done (PR #3)
 M1.3  agent-adapter：只 mock provider，agent.run streaming 打通 + AgentRun 持久化 — done (PR #4)
 M1.4  artifact-service（collect_diff）+ tool-runner（结构化 argv + 指纹 + blob 输出） — done (PR #5)
-M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint）
+M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint） — done (PR #6)
 M1.6  engineering-workflow（无状态编排 + WAITING_REVIEW 轮询 + DONE gate）
       + work.query@1 / vibe work list（ADR-002 Console 上下文枚举，只读，additive）
 M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE

@@ -10,11 +10,11 @@
 
 **Spec:** `docs/M1-DESIGN.md` — §2 G1/G3/G4, §3 (the locked chain), §4.2 (policy + delegation — no `work.complete`), §4.3 (DONE gate conjunction), §4.4 (what M1.7 will attack — set it up here), §5.3 (`org.vibe.workflow.engineering` row: `composition: true` in manifest, no private state, wide `consumes`), §7 (stateless synchronous orchestration; WAITING_REVIEW = poll `review.get`; client disconnect ≠ cancel; CLI 30 min default), §9 (canonical event list), §13 milestone M1.6. Also review finding **A1** (`check_composition.py` must bind a real composition plugin), and `docs/ADR-002-human-console-interaction-model.md` (the confirmed Human Console model — its only M1 requirement is the additive `work.query@1` in Task 2A).
 
-**Base:** branch `chatgpt/m1-6-engineering-workflow` from `main` at **`<M1.5-MERGE-COMMIT>`** (filled at dispatch time). Present at that point: everything through M1.5 — 9 plugins wired (`blob`, `event-journal`, `work-registry`, `workspace`, `agent-harness`, `artifact`, `tool-runner`, `review`, `session`), `cli/vibe` with `task`/`workspace`/`agent`/`artifact`/`tool`/`review`/`session` subcommands, `scripts/smoke*.sh` (with `kill_kernel_tree` + query-readiness probe in `restart_kernel`), `config/m1-{policy,bindings}.json` with **29 contracts**, `architecture-tests/check_composition.py` (seeded, never bound to a real composition plugin).
+**Base:** branch `chatgpt/m1-6-engineering-workflow` from `main` at **`02e1014`** (filled at dispatch time). Present at that point: everything through M1.5 — 9 plugins wired (`blob`, `event-journal`, `work-registry`, `workspace`, `agent-harness`, `artifact`, `tool-runner`, `review`, `session`), `cli/vibe` with `task`/`workspace`/`agent`/`artifact`/`tool`/`review`/`session` subcommands, `scripts/smoke*.sh` (with `kill_kernel_tree` + query-readiness probe in `restart_kernel`), `config/m1-{policy,bindings}.json` with **29 contracts**, `architecture-tests/check_composition.py` (seeded, never bound to a real composition plugin).
 
 ## Global Constraints
 
-- **G1 Kernel Purity:** no task modifies `kernel/` source. G1 check: `git diff --name-only <M1.5-MERGE-COMMIT> HEAD -- kernel/internal kernel/cmd kernel/sdk` must be empty. If a step seems to need a kernel change, stop and report.
+- **G1 Kernel Purity:** no task modifies `kernel/` source. G1 check: `git diff --name-only 02e1014 HEAD -- kernel/internal kernel/cmd kernel/sdk` must be empty. If a step seems to need a kernel change, stop and report.
 - **Do NOT touch `docs/M1-DESIGN.md`.** Not staged, not edited, not committed. §13 is the reviewer's post-merge step.
 - **No new external Go modules.**
 - **Module paths:** kernel `github.com/example/agent-native-microkernel`; plugins `github.com/example/agent-native-os/plugins`; CLI `github.com/example/agent-native-os/cli`.
@@ -733,7 +733,7 @@ echo "M1.6 WORKFLOW SMOKE: OK"
 - [ ] **Step 3: kernel regression** — `cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py 2>&1 | tail -2` → `PASSED`.
 - [ ] **Step 4: architecture checks** — `bash scripts/check-arch.sh` → `CONTRACT CHECK: PASSED (32 contracts, ...)` (29 pre-M1.6 + `workflow.engineering.run/get` + `work.query` — trust the command's own count and adjust this literal if it differs), `COMPOSITION FITNESS: PASSED (10 manifests)` (with the `info:` line for the workflow), `ARCHITECTURE FITNESS: PASSED`, `ARCH CHECKS OK`. Also `python3 architecture-tests/check_composition_test.py` → all `ok`.
 - [ ] **Step 5: smoke ×5** — every run ends `M1.6 WORKFLOW SMOKE: OK` + `M1 SMOKE: PASSED`, no `FAIL`; the earlier fragments (`WORKSPACE`/`AGENT`/`ARTIFACT+TOOL`/`REVIEW+SESSION`) all still `OK`.
-- [ ] **Step 6: G1 + design purity** — `git diff --name-only <M1.5-MERGE-COMMIT> HEAD -- kernel/internal kernel/cmd kernel/sdk` and `-- docs/M1-DESIGN.md` both empty.
+- [ ] **Step 6: G1 + design purity** — `git diff --name-only 02e1014 HEAD -- kernel/internal kernel/cmd kernel/sdk` and `-- docs/M1-DESIGN.md` both empty.
 - [ ] **Step 7: open the PR** — `chatgpt/m1-6-engineering-workflow` → `main`, title **M1.6 — Engineering Workflow (composition)**, body: the 11 tasks (1, 2, 2A, 3–10), verbatim acceptance output (Steps 3–6), deviations. No docs commit.
 
 ---
