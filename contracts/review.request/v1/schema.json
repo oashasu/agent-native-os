@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "compatibility": "backward-within-major",
+  "contract": "review.request@1",
+  "kind": "command",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": {
+        "type": "string"
+      },
+      "agent_run_id": {
+        "type": "string"
+      },
+      "diff_artifact_id": {
+        "type": "string"
+      },
+      "evidence_snapshot": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "evidence_ref_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "outcome"
+          ]
+        }
+      }
+    },
+    "required": [
+      "work_context_id",
+      "diff_artifact_id"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "review": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "review"
+    ]
+  }
+}
