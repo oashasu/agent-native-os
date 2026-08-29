@@ -28,7 +28,11 @@
         "artifact.query@1",
         "tool.run@1",
         "tool.run.get@1",
-        "tool.run.query@1"
+        "tool.run.query@1",
+        "review.request@1",
+        "review.decide@1",
+        "review.get@1",
+        "review.query@1"
       ]
     },
     "org.vibe.event.journal": {
@@ -58,6 +62,9 @@
       "capabilities": [
         "blob.put@1"
       ]
+    },
+    "org.vibe.review": {
+      "capabilities": []
     }
   }
 }

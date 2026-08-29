@@ -1,0 +1,14 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.review", "version": "1.0.0" },
+  "runtime": { "protocol": "vibe-plugin/1", "executable": "../bin/review", "isolation": "process", "data_namespace": "state-authority/reviews-main" },
+  "exports": [
+    { "capability": "review.request", "major": 1, "contract": "review.request@1", "mode": "stateful", "service": "default-review", "authority": "reviews-main", "priority": 100 },
+    { "capability": "review.decide", "major": 1, "contract": "review.decide@1", "mode": "stateful", "service": "default-review", "authority": "reviews-main", "priority": 100 },
+    { "capability": "review.get", "major": 1, "contract": "review.get@1", "mode": "stateful", "service": "default-review", "authority": "reviews-main", "priority": 100 },
+    { "capability": "review.query", "major": 1, "contract": "review.query@1", "mode": "stateful", "service": "default-review", "authority": "reviews-main", "priority": 100 }
+  ],
+  "permissions": [],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 200 },
+  "resources": { "memory_mb": 128, "cpu_weight": 10 }
+}

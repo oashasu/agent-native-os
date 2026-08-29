@@ -125,6 +125,17 @@ func run(args []string) error {
 		default:
 			return fmt.Errorf("unknown artifact subcommand %q", args[1])
 		}
+	case "review":
+		switch args[1] {
+		case "request":
+			return reviewRequest(*socket, *identity, *token, args[2:])
+		case "decide":
+			return reviewDecide(*socket, *identity, *token, args[2:])
+		case "show":
+			return reviewShow(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown review subcommand %q", args[1])
+		}
 	case "tool":
 		switch args[1] {
 		case "run":
@@ -683,5 +694,143 @@ func toolShow(socket, identity, token string, args []string) error {
 	tr := out.ToolRun
 	fmt.Printf("id %s\nlabel %s\noutcome %s\nexit_code %d\nfingerprint %s\nstdout_uri %s\nstderr_uri %s\n",
 		tr.ID, tr.Label, tr.Outcome, tr.ExitCode, tr.Fingerprint, tr.StdoutURI, tr.StderrURI)
+	return nil
+}
+
+// --- M1.5: review ---
+type reviewView struct {
+	ID                string `json:"id"`
+	WorkContextID     string `json:"work_context_id"`
+	AgentRunID        string `json:"agent_run_id"`
+	DiffArtifactID    string `json:"diff_artifact_id"`
+	Status            string `json:"status"`
+	Reviewer          string `json:"reviewer"`
+	Notes             string `json:"notes"`
+	AcceptanceResults []struct {
+		CriterionID  string   `json:"criterion_id"`
+		Satisfied    bool     `json:"satisfied"`
+		EvidenceRefs []string `json:"evidence_refs"`
+		Notes        string   `json:"notes"`
+	} `json:"acceptance_results"`
+	EvidenceSnapshot []struct {
+		Kind          string `json:"kind"`
+		Outcome       string `json:"outcome"`
+		EvidenceRefID string `json:"evidence_ref_id"`
+	} `json:"evidence_snapshot"`
+	RequestedAt string `json:"requested_at"`
+	DecidedAt   string `json:"decided_at"`
+}
+type reviewResponse struct {
+	Review reviewView `json:"review"`
+}
+
+func reviewRequest(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("review request requires <work-context-id>")
+	}
+	wc := args[0]
+	fs := flag.NewFlagSet("review request", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	agent := fs.String("agent-run", "", "agent run id")
+	diff := fs.String("diff-artifact", "", "diff artifact id")
+	var evidence acFlags
+	fs.Var(&evidence, "evidence", "kind:outcome (repeatable)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *diff == "" {
+		return fmt.Errorf("-diff-artifact is required")
+	}
+	es := make([]map[string]string, 0, len(evidence))
+	for _, v := range evidence {
+		k, o, ok := strings.Cut(v, ":")
+		if !ok || k == "" || o == "" {
+			return fmt.Errorf("-evidence must be kind:outcome")
+		}
+		es = append(es, map[string]string{"kind": k, "outcome": o})
+	}
+	payload := map[string]any{"work_context_id": wc, "diff_artifact_id": *diff, "evidence_snapshot": es}
+	if *agent != "" {
+		payload["agent_run_id"] = *agent
+	}
+	resp, err := invoke(socket, identity, token, command("review.request", payload))
+	if err != nil {
+		return err
+	}
+	var out reviewResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("review %s  status %s\n", out.Review.ID, out.Review.Status)
+	return nil
+}
+func reviewDecide(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("review decide requires <review-id>")
+	}
+	id := args[0]
+	fs := flag.NewFlagSet("review decide", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	approved := fs.Bool("approved", false, "approve")
+	changes := fs.Bool("changes-requested", false, "request changes")
+	reviewer := fs.String("reviewer", "", "reviewer")
+	notes := fs.String("notes", "", "notes")
+	var acc acFlags
+	fs.Var(&acc, "acceptance", "ID=pass|fail (repeatable)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *approved == *changes {
+		return fmt.Errorf("exactly one of -approved or -changes-requested is required")
+	}
+	decision := "CHANGES_REQUESTED"
+	if *approved {
+		decision = "APPROVED"
+	}
+	results := make([]map[string]any, 0, len(acc))
+	for _, v := range acc {
+		cid, val, ok := strings.Cut(v, "=")
+		if !ok || cid == "" || (val != "pass" && val != "fail") {
+			return fmt.Errorf("-acceptance must be ID=pass|fail")
+		}
+		results = append(results, map[string]any{"criterion_id": cid, "satisfied": val == "pass"})
+	}
+	payload := map[string]any{"review_id": id, "decision": decision, "reviewer": *reviewer, "notes": *notes, "acceptance_results": results}
+	resp, err := invoke(socket, identity, token, command("review.decide", payload))
+	if err != nil {
+		return err
+	}
+	var out reviewResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("review %s  status %s\n", out.Review.ID, out.Review.Status)
+	return nil
+}
+func reviewShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("review show requires <review-id>")
+	}
+	fs := flag.NewFlagSet("review show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "review.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"review_id": args[0]})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out reviewResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	r := out.Review
+	fmt.Printf("id %s\nstatus %s\ndiff_artifact_id %s\nreviewer %s\nnotes %s\n", r.ID, r.Status, r.DiffArtifactID, r.Reviewer, r.Notes)
 	return nil
 }
