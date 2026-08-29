@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.session", "version": "1.0.0" },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "../bin/session",
+    "isolation": "process",
+    "data_namespace": "state-authority/sessions-main"
+  },
+  "exports": [
+    { "capability": "session.seal", "major": 1, "contract": "session.seal@1", "mode": "stateful", "service": "default-session", "authority": "sessions-main", "priority": 100 },
+    { "capability": "session.get", "major": 1, "contract": "session.get@1", "mode": "stateful", "service": "default-session", "authority": "sessions-main", "priority": 100 },
+    { "capability": "session.query", "major": 1, "contract": "session.query@1", "mode": "stateful", "service": "default-session", "authority": "sessions-main", "priority": 100 }
+  ],
+  "consumes": { "required": [
+    { "capability": "event.journal.replay", "major": 1, "contract": "event.journal.replay@1" },
+    { "capability": "blob.put", "major": 1, "contract": "blob.put@1" }
+  ] },
+  "permissions": ["exec:git", "fs:read"],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 200 },
+  "resources": { "memory_mb": 256, "cpu_weight": 20 }
+}
