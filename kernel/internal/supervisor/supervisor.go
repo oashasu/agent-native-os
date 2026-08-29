@@ -77,6 +77,17 @@ func (s *Supervisor) MarkBlocked(m manifest.Manifest, reason string) {
 	s.Track(m)
 	s.setStatus(m.Plugin.ID, StateBlocked, "", reason)
 }
+
+// MarkManifestRejected records a manifest that failed to load or be admitted.
+// id may be empty when the manifest did not parse; the file path is then used as
+// the key so the failure is still visible via Status/Statuses.
+func (s *Supervisor) MarkManifestRejected(id, path, reason string) {
+	key := id
+	if key == "" {
+		key = path
+	}
+	s.setStatus(key, StateFailed, "", reason)
+}
 func (s *Supervisor) Status(pluginID string) (PluginStatus, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

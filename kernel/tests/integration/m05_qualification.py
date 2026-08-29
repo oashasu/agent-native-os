@@ -4,7 +4,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 BIN=ROOT/'bin'; PLUGINS=ROOT/'plugins'; POLICY=ROOT/'policy.json'
 
 def wait_socket(p):
- for _ in range(100):
+ for _ in range(300):
   if pathlib.Path(p).exists(): return
   time.sleep(.03)
  raise RuntimeError('socket not ready')

@@ -5,9 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/example/agent-native-microkernel/internal/authz"
+	"github.com/example/agent-native-microkernel/internal/bootstrap"
 	"github.com/example/agent-native-microkernel/internal/clientgateway"
 	"github.com/example/agent-native-microkernel/internal/contractmeta"
-	"github.com/example/agent-native-microkernel/internal/manifest"
 	"github.com/example/agent-native-microkernel/internal/policy"
 	"github.com/example/agent-native-microkernel/internal/registry"
 	"github.com/example/agent-native-microkernel/internal/router"
@@ -18,11 +18,6 @@ import (
 	"path/filepath"
 	"syscall"
 )
-
-type loaded struct {
-	m          manifest.Manifest
-	path, hash string
-}
 
 func main() {
 	pluginsDir := flag.String("plugins", "./plugins", "manifest directory")
@@ -63,41 +58,38 @@ func main() {
 	}
 	rt := router.New(reg, auth)
 	sup := supervisor.New(reg, rt)
-	matches, _ := filepath.Glob(filepath.Join(*pluginsDir, "*.manifest.json"))
-	var all []loaded
-	for _, p := range matches {
-		m, h, err := manifest.Load(p)
-		if err != nil {
-			log.Fatalf("load %s: %v", p, err)
-		}
-		if err := reg.AddManifest(m); err != nil {
-			log.Fatalf("admit %s: %v", p, err)
-		}
-		sup.Track(m)
-		all = append(all, loaded{m, p, h})
+	// A malformed or rejected manifest is a local failure, not fatal: the host
+	// continues with the plugins that did load. (docs/04 failure model.)
+	all, rejected := bootstrap.LoadAndAdmit(*pluginsDir, reg)
+	for _, f := range rejected {
+		sup.MarkManifestRejected(f.PluginID, f.Path, f.Reason)
+		log.Printf("rejected manifest %s: %s", f.Path, f.Reason)
 	}
-	pending := append([]loaded(nil), all...)
+	for _, x := range all {
+		sup.Track(x.Manifest)
+	}
+	pending := append([]bootstrap.Loaded(nil), all...)
 	for len(pending) > 0 {
 		progress := false
-		next := make([]loaded, 0)
+		next := make([]bootstrap.Loaded, 0)
 		for _, x := range pending {
-			if missing := reg.MissingHealthyRequired(x.m); len(missing) > 0 {
+			if missing := reg.MissingHealthyRequired(x.Manifest); len(missing) > 0 {
 				next = append(next, x)
 				continue
 			}
-			if _, err := sup.Start(ctx, x.m, x.path, x.hash); err != nil {
-				log.Printf("failed %s: %v", x.m.Plugin.ID, err)
+			if _, err := sup.Start(ctx, x.Manifest, x.Path, x.Hash); err != nil {
+				log.Printf("failed %s: %v", x.Manifest.Plugin.ID, err)
 				continue
 			}
-			log.Printf("started %s %s", x.m.Plugin.ID, x.m.Plugin.Version)
+			log.Printf("started %s %s", x.Manifest.Plugin.ID, x.Manifest.Plugin.Version)
 			progress = true
 		}
 		if !progress {
 			for _, x := range next {
-				missing := reg.MissingHealthyRequired(x.m)
+				missing := reg.MissingHealthyRequired(x.Manifest)
 				reason := fmt.Sprintf("no healthy provider for required %v", missing)
-				sup.MarkBlocked(x.m, reason)
-				log.Printf("blocked %s: %s", x.m.Plugin.ID, reason)
+				sup.MarkBlocked(x.Manifest, reason)
+				log.Printf("blocked %s: %s", x.Manifest.Plugin.ID, reason)
 			}
 			break
 		}

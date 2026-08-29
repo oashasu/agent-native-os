@@ -86,6 +86,26 @@ func TestProviderHandshakeEnforcesContractKind(t *testing.T) {
 	}
 }
 
+func TestMarkManifestRejectedIsObservable(t *testing.T) {
+	reg := registry.New()
+	rt := router.New(reg, authz.New())
+	sup := New(reg, rt)
+
+	// A manifest that parsed but was rejected on admission: keyed by plugin id.
+	sup.MarkManifestRejected("org.vibe.test.dup", "dup.manifest.json", "duplicate plugin id")
+	st, ok := sup.Status("org.vibe.test.dup")
+	if !ok || st.State != StateFailed || !strings.Contains(st.Reason, "duplicate") {
+		t.Fatalf("admission-rejected manifest status = %+v ok=%v, want FAILED", st, ok)
+	}
+
+	// A manifest that did not parse: no plugin id, keyed by path so it is still visible.
+	sup.MarkManifestRejected("", "broken.manifest.json", "invalid character")
+	st, ok = sup.Status("broken.manifest.json")
+	if !ok || st.State != StateFailed {
+		t.Fatalf("unparseable manifest status = %+v ok=%v, want FAILED keyed by path", st, ok)
+	}
+}
+
 func TestPluginStatusLifecycleIsExplicit(t *testing.T) {
 	reg := registry.New()
 	rt := router.New(reg, authz.New())
