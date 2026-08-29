@@ -513,7 +513,7 @@ M1.0  contracts 分家 + composition fitness (check_composition.py) + go.work + 
       + plugin scaffold 模板 + fixtures/sample-java-project + M1 部署 config/smoke
 M1.1  org.vibe.blob（blob.put/get/stat）+ work-registry（Task/WorkContext/真实状态机/attach_evidence/
       expected_version 必填）+ 产品 CLI: vibe task create / show / transition — done (PR #2)
-M1.2  workspace-manager（git worktree）
+M1.2  workspace-manager（git worktree） — done (PR #3)
 M1.3  agent-adapter：只 mock provider，agent.run streaming 打通 + AgentRun 持久化
 M1.4  artifact-service（collect_diff）+ tool-runner（结构化 argv + 指纹 + blob 输出）
 M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint）
