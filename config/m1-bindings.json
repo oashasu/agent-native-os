@@ -1,0 +1,6 @@
+{
+  "bindings": [
+    { "capability": "event.journal.append", "major": 1, "service": "default-event-journal", "authority": "journal-main" },
+    { "capability": "event.journal.replay", "major": 1, "service": "default-event-journal", "authority": "journal-main" }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "clients": {
+    "local-cli": { "token_sha256": "fae22dea5494a204ef9f3f28dcf76fb431426172eb885afb7929aa725986d77b" }
+  },
+  "grants": {
+    "local-cli": {
+      "capabilities": [
+        "event.journal.append@1",
+        "event.journal.replay@1"
+      ]
+    },
+    "org.vibe.event.journal": {
+      "capabilities": []
+    }
+  }
+}
