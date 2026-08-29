@@ -1,0 +1,19 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.tool.runner", "version": "1.0.0" },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "../bin/tool-runner",
+    "isolation": "process",
+    "data_namespace": "state-authority/toolruns-main"
+  },
+  "exports": [
+    { "capability": "tool.run", "major": 1, "contract": "tool.run@1", "mode": "stateful", "service": "default-tool-runner", "authority": "toolruns-main", "priority": 100 },
+    { "capability": "tool.run.get", "major": 1, "contract": "tool.run.get@1", "mode": "stateful", "service": "default-tool-runner", "authority": "toolruns-main", "priority": 100 },
+    { "capability": "tool.run.query", "major": 1, "contract": "tool.run.query@1", "mode": "stateful", "service": "default-tool-runner", "authority": "toolruns-main", "priority": 100 }
+  ],
+  "consumes": { "required": [ { "capability": "blob.put", "major": 1, "contract": "blob.put@1" } ] },
+  "permissions": ["exec:command", "fs:write"],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 200 },
+  "resources": { "memory_mb": 512, "cpu_weight": 40 }
+}
