@@ -12,11 +12,11 @@
 
 **Spec:** `docs/M1-DESIGN.md` — §3 (chain: `review.request` → `WAITING_REVIEW` → `review.decide`; `session.seal` → SessionRecord + archive), §5.2 (`org.vibe.review` / `org.vibe.session` rows), §5.1 note (event.journal is a durable journal, not pub/sub; select by `event_ids` or client-side `correlation_id` filter), §6 (`Review`, `SessionRecord`, `SessionEventSelection`, `RecoveryCheckpoint` shapes — Event Journal has NO `seq` field), §7 (Human review is polling `review.get`), §10 (`workspace.release` only after seal verified — that ordering is the workflow's job in M1.6, not this plugin's), §13 milestone M1.5.
 
-**Base:** branch `chatgpt/m1-5-review-session` from `main` at **`<M1.4-MERGE-COMMIT>`** (filled in at dispatch time — this plan is written before M1.4 merges). Present at that point: everything through M1.4 — `plugins/foundation/{blob,event-journal}`, `plugins/{work-registry,workspace,agent-harness,artifact,tool-runner}`, `cli/vibe`, `scripts/smoke*.sh` (with a query-readiness probe in `restart_kernel`), `config/m1-{policy,bindings}.json` with **22 contracts** and **7 plugins** wired, `architecture-tests/check_composition.py`.
+**Base:** branch `chatgpt/m1-5-review-session` from `main` at **`926c2e9`** (filled in at dispatch time — this plan is written before M1.4 merges). Present at that point: everything through M1.4 — `plugins/foundation/{blob,event-journal}`, `plugins/{work-registry,workspace,agent-harness,artifact,tool-runner}`, `cli/vibe`, `scripts/smoke*.sh` (with a query-readiness probe in `restart_kernel`), `config/m1-{policy,bindings}.json` with **22 contracts** and **7 plugins** wired, `architecture-tests/check_composition.py`.
 
 ## Global Constraints
 
-- **G1 Kernel Purity:** no task modifies `kernel/` source. G1 check: `git diff --name-only <M1.4-MERGE-COMMIT> HEAD -- kernel/internal kernel/cmd kernel/sdk` must be empty.
+- **G1 Kernel Purity:** no task modifies `kernel/` source. G1 check: `git diff --name-only 926c2e9 HEAD -- kernel/internal kernel/cmd kernel/sdk` must be empty.
 - **Do NOT touch `docs/M1-DESIGN.md`.** Do not stage, edit, or commit it. The reviewer updates §13 after merge.
 - **No new external Go modules.**
 - **Module paths:** kernel `github.com/example/agent-native-microkernel`; plugins `github.com/example/agent-native-os/plugins`; CLI `github.com/example/agent-native-os/cli`.
@@ -531,7 +531,7 @@ echo "M1.5 REVIEW+SESSION SMOKE: OK"
 - [ ] **Step 3: kernel regression** — `cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py 2>&1 | tail -2` → `PASSED`.
 - [ ] **Step 4: architecture checks** — `bash scripts/check-arch.sh` → `CONTRACT CHECK: PASSED (29 contracts, ...)`, `COMPOSITION FITNESS: PASSED (9 manifests)`, `ARCHITECTURE FITNESS: PASSED`, `ARCH CHECKS OK`.
 - [ ] **Step 5: smoke ×5** — every run `M1.5 REVIEW+SESSION SMOKE: OK` + `M1 SMOKE: PASSED`.
-- [ ] **Step 6: G1 + design purity** — `git diff --name-only <M1.4-MERGE-COMMIT> HEAD -- kernel/internal kernel/cmd kernel/sdk` and `-- docs/M1-DESIGN.md` both empty.
+- [ ] **Step 6: G1 + design purity** — `git diff --name-only 926c2e9 HEAD -- kernel/internal kernel/cmd kernel/sdk` and `-- docs/M1-DESIGN.md` both empty.
 - [ ] **Step 7: open the PR** — `chatgpt/m1-5-review-session` → `main`, title **M1.5 — Review Gate + Session History**, body: the 9 tasks, verbatim acceptance output (Steps 3–6), deviations. No docs commit.
 
 ---
