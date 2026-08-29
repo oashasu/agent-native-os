@@ -1,7 +1,7 @@
 # M1 — Engineering Vertical Slice 设计
 
 日期：2026-08-29
-状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）+ ADR-002 交互模型对齐（2026-08-29，仅新增 `work.query@1` + scope 澄清，契约面不动）**
+状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）+ ADR-002 交互模型对齐（2026-08-29：契约面零改动；净影响 = §10 增一条可证伪的 Console 读投影验收 + §11 scope 澄清）**
 前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）
 方向输入：项目所有者 + Codex（Q1=A / Q2=Real Harness + mock 双轨 / M1 Architecture Gate / 条件批准）
 
@@ -185,7 +185,7 @@ M2 硬化：review-gate 签发 capability token；`work.transition(DONE)` 要求
 
 | 插件 | authority | 契约（kind） | 拥有 |
 |---|---|---|---|
-| `org.vibe.work.registry` | `work-main` | `work.create@1`(cmd) `work.get@1`(query) `work.query@1`(query) `work.transition@1`(cmd) `work.attach_evidence@1`(cmd) | Task、WorkContext、**真实状态机**（§4.1）、`evidence_refs[]` |
+| `org.vibe.work.registry` | `work-main` | `work.create@1`(cmd) `work.get@1`(query) `work.transition@1`(cmd) `work.attach_evidence@1`(cmd) | Task、WorkContext、**真实状态机**（§4.1）、`evidence_refs[]` |
 | `org.vibe.workspace` | `workspace-main` | `workspace.allocate@1`(cmd) `workspace.release@1`(cmd) `workspace.get@1`(query) | Workspace、git worktree、branch |
 | `org.vibe.agent.harness` | `agent-runs-main` | `agent.run@1`(cmd, streaming) `agent.run.get@1`(query) `agent.run.query@1`(query) `agent.run.cancel@1`(cmd) | AgentRun、harness 生命周期归一化 |
 | `org.vibe.artifact` | `artifact-main` | `artifact.collect_diff@1`(cmd) `artifact.get@1`(query) `artifact.query@1`(query) | Artifact（diff / 命令输出元数据；内容在 blob） |
@@ -195,7 +195,8 @@ M2 硬化：review-gate 签发 capability token；`work.transition(DONE)` 要求
 
 `*.query@1`：按 `work_context_id` 查该插件持有的对象列表 —— 支撑 `vibe task show` 的读投影（见 §6）。
 
-`work.query@1`（ADR-002）：枚举全部 WorkContext，返回 `{work_context_id, task_id, title, status, repo, version}[]` + `next` 分页游标；只接受 `status` 过滤（work-registry 自己的词汇，不违 G1）+ `limit`/`after`，**不接受任何工程语义过滤**。用于 Console 上下文切换器 / headless `vibe work list`。§10 单任务 qualification 不依赖它，随 M1.6 落地。
+**上下文枚举（`work.query@1`）不在 M1**（ADR-002）：Console 的上下文切换器要"列出所有活动 WorkContext"，当前只有 `work.get(task_id)`。但 **M1 里没有任何消费方** —— §10 是单任务 qualification，smoke 不用，workflow 不用。按主路径优先，它归 UI 阶段（见 §11），不塞进 M1 的关键路径。
+ADR-002 对 M1 的真实影响不是这个功能，而是 §10 的 **Console 读投影充分性验收** —— 那条验收才会证伪"读投影已足够支撑两个镜头"这个判断。
 
 ### 5.3 Composition 插件（只做编排）
 
@@ -469,6 +470,32 @@ vibe task show <task-id>
 仍完整可见：`goal / acceptance_criteria / agent_run / worktree(path,base_commit,head_commit) /
 diff / build evidence / test evidence / review(+acceptance_results) / session_record / RecoveryCheckpoint / raw_history_ref`。
 
+**外加 Console 读投影充分性验收（M1.9，ADR-002）**：
+
+ADR-002 断言"既有读投影已足够支撑 IDE / Agent 两个镜头，无需返工"。这条断言**必须可证伪**，
+否则要到 UI 阶段才会暴露 —— 正是当初担心的"晚发现、返工大"。做法：重启 kernel 后，**只用
+Console 会用的那组读投影**重建一次任务视图，逐字段断言。
+
+```text
+work.get(task_id) + workspace.get{work_context_id} + agent.run.query + artifact.query
++ tool.run.query + review.query + session.query          # 不得读任何插件私有存储
+
+IDE 镜头必需字段：
+  workspace.path            # 目录树 / 编辑器的根
+  workspace.base_commit     # git 历史起点
+  RecoveryCheckpoint.head_commit / .branch / .dirty
+  Artifact{kind=diff}.summary.files[]                    # 多文件 changeset
+Agent 镜头必需字段：
+  AgentRun{id, provider, status, raw_session_ref}        # 会话转录入口
+  EvidenceRef[]{kind, outcome, source_id}                # 证据链
+  Review{status, diff_artifact_id, acceptance_results[]} # 完成闸 + 裁决
+  SessionRecord{archive_ref, archive_hash}               # 已封存会话
+
+任一字段缺失 / 拿不到 → 验收 FAIL → ADR-002 的"无需返工"结论被证伪，当场返工。
+```
+
+**致残对照**：把 `Artifact.summary.files[]` 置空，该验收必须变红；不变红说明它在空转。
+
 **外加 G4 独立 qualification（M1.7，真实 provider 之前）** —— 见 §4.4：
 ```text
 external direct  work.transition(<task>, DONE)   → 拒（外部身份无 work.transition@1 capability grant）
@@ -492,6 +519,8 @@ review.decided 事件订阅 + background reconciler（M2）
 Foundation journal 的领域/通用过滤（M2/M3）
 untracked 文件内容打包（M1 只存文件名清单）
 新增 work.complete@1 契约（**撤回** —— 用既有 policy/delegation，见 §4）
+Console 上下文枚举 work.query@1 / vibe work list（UI 阶段 —— M1 无消费方，见 §5.2；ADR-002）
+Console 读模型（切换器一行要 agent/分支/时间 → 当前是 N+1 次查询；大规模导航 G9 需要读模型插件，M2；ADR-002）
 Agent 交互式追问 / 向运行中的 agent.run 追加消息（M2 —— M1 agent.run 一次性 streaming；ADR-002）
 结构化转录卡片渲染（依赖 provider adapter 归一化 —— M1.8+ / UI 阶段；M1 只保证 raw_session_ref + agent.frame 流；ADR-002）
 本地 git 提交历史可视化（UI 阶段 —— worktree 是本地目录，IDE 工作台直接跑 git；ADR-002）
@@ -526,10 +555,10 @@ M1.3  agent-adapter：只 mock provider，agent.run streaming 打通 + AgentRun 
 M1.4  artifact-service（collect_diff）+ tool-runner（结构化 argv + 指纹 + blob 输出） — done (PR #5)
 M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint） — done (PR #6)
 M1.6  engineering-workflow（无状态编排 + WAITING_REVIEW 轮询 + DONE gate）
-      + work.query@1 / vibe work list（ADR-002 Console 上下文枚举，只读，additive）
 M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE
 M1.8  agent-adapter 接真实 provider #1（运行时发现 codex/claude）
-M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证 → G1–G6 全过 → M1 PASSED
+M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证
+      + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED
 ```
 
 每个里程碑：TDD + 致残对照；`scripts/test.sh` 全绿（含 kernel M0.5 回归）；G1 `check_boundaries.py` + 人工复核。

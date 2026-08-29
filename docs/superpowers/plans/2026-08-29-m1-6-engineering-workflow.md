@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go standard library + `kernel/sdk/go/{protocol,pluginhost,fencing}` (via `go.work`, **no new external Go dependency**), newline-delimited JSON over a Unix socket, Python 3 + `jsonschema`.
 
-**Spec:** `docs/M1-DESIGN.md` — §2 G1/G3/G4, §3 (the locked chain), §4.2 (policy + delegation — no `work.complete`), §4.3 (DONE gate conjunction), §4.4 (what M1.7 will attack — set it up here), §5.3 (`org.vibe.workflow.engineering` row: `composition: true` in manifest, no private state, wide `consumes`), §7 (stateless synchronous orchestration; WAITING_REVIEW = poll `review.get`; client disconnect ≠ cancel; CLI 30 min default), §9 (canonical event list), §13 milestone M1.6. Also review finding **A1** (`check_composition.py` must bind a real composition plugin), and `docs/ADR-002-human-console-interaction-model.md` (the confirmed Human Console model — its only M1 requirement is the additive `work.query@1` in Task 2A).
+**Spec:** `docs/M1-DESIGN.md` — §2 G1/G3/G4, §3 (the locked chain), §4.2 (policy + delegation — no `work.complete`), §4.3 (DONE gate conjunction), §4.4 (what M1.7 will attack — set it up here), §5.3 (`org.vibe.workflow.engineering` row: `composition: true` in manifest, no private state, wide `consumes`), §7 (stateless synchronous orchestration; WAITING_REVIEW = poll `review.get`; client disconnect ≠ cancel; CLI 30 min default), §9 (canonical event list), §13 milestone M1.6. Also review finding **A1** (`check_composition.py` must bind a real composition plugin), and `docs/ADR-002-human-console-interaction-model.md` (the confirmed Human Console model — it requires **no change to this milestone**; its M1 impact is a `docs/M1-DESIGN.md` §10 acceptance step that lands in M1.9).
 
 **Base:** branch `chatgpt/m1-6-engineering-workflow` from `main` at **`02e1014`** (filled at dispatch time). Present at that point: everything through M1.5 — 9 plugins wired (`blob`, `event-journal`, `work-registry`, `workspace`, `agent-harness`, `artifact`, `tool-runner`, `review`, `session`), `cli/vibe` with `task`/`workspace`/`agent`/`artifact`/`tool`/`review`/`session` subcommands, `scripts/smoke*.sh` (with `kill_kernel_tree` + query-readiness probe in `restart_kernel`), `config/m1-{policy,bindings}.json` with **29 contracts**, `architecture-tests/check_composition.py` (seeded, never bound to a real composition plugin).
 
@@ -37,7 +37,6 @@
 New:
 
 - `contracts/workflow.engineering.run/v1/schema.json`, `contracts/workflow.engineering.get/v1/schema.json`
-- `contracts/work.query/v1/schema.json` — ADR-002 console context enumeration (Task 2A)
 - `plugins/engineering-workflow/pipeline.go`, `plugins/engineering-workflow/pipeline_test.go` — `runPipeline` + `caps` + `RunRequest`/`RunResult`
 - `plugins/engineering-workflow/gate.go`, `plugins/engineering-workflow/gate_test.go` — pure DONE-gate evaluator
 - `plugins/engineering-workflow/progress.go`, `plugins/engineering-workflow/progress_test.go` — journal → pipeline-progress projection
@@ -48,13 +47,12 @@ New:
 
 Modified:
 
-- `contracts/catalog.json` — +3 entries (2 workflow + `work.query@1`)
-- `plugins/work-registry/{store.go,handlers.go,*_test.go}` + `plugins/manifests/work-registry.manifest.json` — additive `work.query@1` read query (Task 2A); no state-machine / authority / storage-shape change
+- `contracts/catalog.json` — +2 entries
 - `architecture-tests/check_composition.py` — composition plugins exempt from the fan-in ceiling **but** must declare no `data_namespace`-backed private store beyond a fence lease and no stateless private authority; see Task 1
 - `architecture-tests/thresholds.json` — unchanged values, doc note
 - `config/m1-policy.json` — **restructure** (see Task 7): `local-cli` becomes the qualification identity (no direct `work.transition@1`, no direct `agent.run@1`, etc.); a `workflow.engineering.run@1` delegation scope is added; a new `m1-dev` client keeps the broad direct grants for the per-plugin fragment smokes; `org.vibe.workflow.engineering` grant lists every capability it consumes
-- `config/m1-bindings.json` — bindings for `workflow.engineering.run` / `workflow.engineering.get` / `work.query`
-- `cli/vibe/main.go` — `workflow` subcommand (`run` / `show`) + `work list` (Task 2A); the per-plugin fragment smokes' `vibe` calls that need `work.transition` / `agent.run` / `tool.run` / `artifact.collect_diff` etc. switch to `-identity m1-dev`
+- `config/m1-bindings.json` — bindings for `workflow.engineering.run` / `workflow.engineering.get`
+- `cli/vibe/main.go` — `workflow` subcommand (`run` / `show`); the per-plugin fragment smokes' `vibe` calls that need `work.transition` / `agent.run` / `tool.run` / `artifact.collect_diff` etc. switch to `-identity m1-dev`
 - `scripts/smoke-{workspace,agent,artifact,review-session}.sh` — use `-identity m1-dev` for the "doing" calls (they were written against a permissive `local-cli`)
 - `scripts/smoke.sh` — export `DEV_TOKEN` alongside `TOKEN`; `source scripts/smoke-workflow.sh` last
 
@@ -200,106 +198,9 @@ response `{ "result": { "type": "object" } }` required. (`mock_agent_*` are forw
   }
 ```
 
-- [ ] **Step 3: catalog + check** — add `workflow.engineering.run@1` / `workflow.engineering.get@1`. `python3 scripts/check-contracts.py --root contracts` → PASSED (29 + 2 = 31 here; Task 2A adds `work.query@1` for a final 32 — trust the command's own count).
+- [ ] **Step 3: catalog + check** — add `workflow.engineering.run@1` / `workflow.engineering.get@1`. `python3 scripts/check-contracts.py --root contracts` → PASSED (count 29 + 2 = 31).
 
 - [ ] **Step 4: commit** — `build(m1.6): workflow.engineering.run/get contracts`
-
----
-
-## Task 2A: `work.query@1` + `vibe work list` (ADR-002)
-
-The Console's context switcher — and headless `vibe work list` — must enumerate every
-WorkContext with its status. work-registry today only answers `work.get(task_id)`. This
-is an **additive read query**: no state-machine, authority, or storage-shape change. `§10`
-single-task qualification does not depend on it; it lands here because M1.6 already touches
-work-registry's contract set, the M1 bindings, and the M1 policy (Task 7).
-
-**Files:**
-- Create: `contracts/work.query/v1/schema.json`
-- Modify: `contracts/catalog.json` (+1 entry)
-- Modify: `plugins/work-registry/store.go` — add `List(statusFilter string) []WorkContextRow` over the in-memory projection (stable order by creation)
-- Modify: `plugins/work-registry/handlers.go` — add the `work.query` handler
-- Modify: `plugins/work-registry/handlers_test.go` (or the store test file) — the failing test below
-- Modify: `plugins/manifests/work-registry.manifest.json` — add the `work.query@1` **query** export (no new authority; same `work-main`)
-- Modify: `cli/vibe/main.go` — `vibe work list [-status X]` subcommand
-- Modify: `config/m1-bindings.json` — bind `work.query` (Task 8 also touches this file — either task may add it; if Task 8 runs first, skip here)
-- Note: `config/m1-policy.json` gets `work.query@1` in the `local-cli` and `m1-dev` capability lists — already written into the Task 7 JSON.
-
-**Contract** `contracts/work.query/v1/schema.json` — `kind` `"query"`:
-
-```json
-{
-  "capability": "work.query",
-  "major": 1,
-  "kind": "query",
-  "request": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-      "status": { "type": "string", "enum": ["PLANNED", "IN_PROGRESS", "IN_REVIEW", "DONE", "FAILED"] },
-      "limit":  { "type": "integer", "minimum": 1 },
-      "after":  { "type": "string" }
-    }
-  },
-  "response": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-      "work_contexts": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "work_context_id": { "type": "string" },
-            "task_id":         { "type": "string" },
-            "title":           { "type": "string" },
-            "status":          { "type": "string" },
-            "repo":            { "type": "string" },
-            "version":         { "type": "integer" }
-          },
-          "required": ["work_context_id", "task_id", "title", "status", "repo", "version"]
-        }
-      },
-      "next": { "type": ["string", "null"] }
-    },
-    "required": ["work_contexts", "next"]
-  }
-}
-```
-
-`status` is work-registry's own vocabulary (already in the Task state machine), so it does **not** trip G1. No engineering-semantic filter beyond it.
-
-- [ ] **Step 1: failing test** — in the work-registry test package: create three tasks; transition one to `IN_PROGRESS`, one to `IN_REVIEW`; call `work.query` with no filter → all three, ordered by creation; with `status=IN_PROGRESS` → exactly one, the right one; each row carries `work_context_id/task_id/title/status/repo/version`.
-
-```go
-func TestWorkQuery_FilterAndOrder(t *testing.T) {
-	st := newTestStore(t)
-	a := mustCreate(t, st, "alpha")
-	b := mustCreate(t, st, "beta")
-	c := mustCreate(t, st, "gamma")
-	mustTransition(t, st, b, "IN_PROGRESS")
-	mustTransition(t, st, c, "IN_PROGRESS")
-	mustTransition(t, st, c, "IN_REVIEW")
-
-	all := st.List("")
-	if len(all) != 3 || all[0].TaskID != a.TaskID || all[2].TaskID != c.TaskID {
-		t.Fatalf("want alpha,beta,gamma in creation order, got %+v", all)
-	}
-	inprog := st.List("IN_PROGRESS")
-	if len(inprog) != 1 || inprog[0].TaskID != b.TaskID {
-		t.Fatalf("want only beta IN_PROGRESS, got %+v", inprog)
-	}
-}
-```
-
-- [ ] **Step 2: run — watch it fail** (`st.List` undefined). `go test ./plugins/work-registry/... -run TestWorkQuery`.
-- [ ] **Step 3: implement** — `WorkContextRow` struct + `Store.List(statusFilter string) []WorkContextRow` (iterate the projection in insertion order, filter by `status` when non-empty); `work.query` handler decodes `{status,limit,after}`, calls `List`, applies `limit`/`after` (opaque cursor = last `work_context_id`; `next` is null when the page is not truncated); register `work.query@1` in `contracts/catalog.json`; add the manifest export.
-- [ ] **Step 4: run — green.** Also `python3 scripts/check-contracts.py --root contracts` PASSED.
-- [ ] **Step 5: mutation check** — make `List` ignore `statusFilter` (always return all); the `status=IN_PROGRESS` assertion goes red; restore.
-- [ ] **Step 6: `vibe work list`** — `cli/vibe/main.go`: `vibe work list [-status PLANNED|IN_PROGRESS|IN_REVIEW|DONE|FAILED]` → `work.query@1` query; print one line per row: `<task_id>  <status>  <title>`. Add the `work.query` binding to `config/m1-bindings.json` if not already present.
-- [ ] **Step 7: build + tests green** — `go build ./... && go test ./plugins/work-registry/... ./cli/...` (delete any stray `./vibe`).
-- [ ] **Step 8: commit** — `feat(m1.6): work.query@1 + vibe work list (ADR-002 console context enumeration)`
 
 ---
 
@@ -561,7 +462,7 @@ Split the single permissive `local-cli` into: a **qualification identity** (`loc
   "grants": {
     "local-cli": {
       "capabilities": [
-        "work.create@1", "work.get@1", "work.query@1",
+        "work.create@1", "work.get@1",
         "workflow.engineering.run@1", "workflow.engineering.get@1",
         "review.request@1", "review.decide@1", "review.get@1", "review.query@1",
         "agent.run.get@1", "agent.run.query@1",
@@ -590,7 +491,7 @@ Split the single permissive `local-cli` into: a **qualification identity** (`loc
       "capabilities": [
         "event.journal.append@1", "event.journal.replay@1",
         "blob.put@1", "blob.get@1", "blob.stat@1",
-        "work.create@1", "work.get@1", "work.query@1", "work.transition@1", "work.attach_evidence@1",
+        "work.create@1", "work.get@1", "work.transition@1", "work.attach_evidence@1",
         "workspace.allocate@1", "workspace.release@1", "workspace.get@1",
         "agent.run@1", "agent.run.get@1", "agent.run.query@1", "agent.run.cancel@1",
         "artifact.collect_diff@1", "artifact.get@1", "artifact.query@1",
@@ -637,7 +538,7 @@ Compute the two `token_sha256` values with `printf '%s' '<token>' | shasum -a 25
 
 **Files:** `config/m1-bindings.json`, `cli/vibe/main.go`, `scripts/smoke-{workspace,agent,artifact,review-session}.sh`, `scripts/smoke.sh`.
 
-- [ ] **Step 1: bindings** — add `workflow.engineering.run` / `workflow.engineering.get` (no service/authority — the workflow's exports are stateless, so bindings only need `{capability, major}`; match how other stateless caps are bound, or omit if the kernel does not require a binding for stateless). Also add the `work.query` binding if Task 2A did not already add it (match the existing `work.get` binding — same `work-main` authority).
+- [ ] **Step 1: bindings** — add `workflow.engineering.run` / `workflow.engineering.get` (no service/authority — the workflow's exports are stateless, so bindings only need `{capability, major}`; match how other stateless caps are bound, or omit if the kernel does not require a binding for stateless).
 
 - [ ] **Step 2: `vibe workflow` subcommand** in `cli/vibe/main.go`
 - `vibe workflow run <task-id> -prompt "<text>" [-build "<argv...>"] [-test "<argv...>"] [-review-poll-ms N] [-mock-write-file <rel>] [-mock-write-content <s>] [-timeout <dur, default 30m>]` → an `invoke` with a `workflow.engineering.run@1` command; set the envelope `Deadline` to `now + timeout` (default 30 min); on return print `outcome <outcome>  task <task_id>  reason <reason>` and the key ids. `-build` / `-test` are space-split into argv (default `["sh","-c","true"]` for both).
@@ -729,12 +630,12 @@ echo "M1.6 WORKFLOW SMOKE: OK"
 **Files:** none — **do not touch `docs/M1-DESIGN.md`.**
 
 - [ ] **Step 1: full build** — three module paths → exit 0.
-- [ ] **Step 2: all Go tests** — `go test ./plugins/... ./plugins/_template ./cli/... && (cd kernel && go test ./...)` → all `ok` (includes the new `TestWorkQuery_*` in work-registry).
+- [ ] **Step 2: all Go tests** — `go test ./plugins/... ./plugins/_template ./cli/... && (cd kernel && go test ./...)` → all `ok`.
 - [ ] **Step 3: kernel regression** — `cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py 2>&1 | tail -2` → `PASSED`.
-- [ ] **Step 4: architecture checks** — `bash scripts/check-arch.sh` → `CONTRACT CHECK: PASSED (32 contracts, ...)` (29 pre-M1.6 + `workflow.engineering.run/get` + `work.query` — trust the command's own count and adjust this literal if it differs), `COMPOSITION FITNESS: PASSED (10 manifests)` (with the `info:` line for the workflow), `ARCHITECTURE FITNESS: PASSED`, `ARCH CHECKS OK`. Also `python3 architecture-tests/check_composition_test.py` → all `ok`.
+- [ ] **Step 4: architecture checks** — `bash scripts/check-arch.sh` → `CONTRACT CHECK: PASSED (31 contracts, ...)`, `COMPOSITION FITNESS: PASSED (10 manifests)` (with the `info:` line for the workflow), `ARCHITECTURE FITNESS: PASSED`, `ARCH CHECKS OK`. Also `python3 architecture-tests/check_composition_test.py` → all `ok`.
 - [ ] **Step 5: smoke ×5** — every run ends `M1.6 WORKFLOW SMOKE: OK` + `M1 SMOKE: PASSED`, no `FAIL`; the earlier fragments (`WORKSPACE`/`AGENT`/`ARTIFACT+TOOL`/`REVIEW+SESSION`) all still `OK`.
 - [ ] **Step 6: G1 + design purity** — `git diff --name-only 02e1014 HEAD -- kernel/internal kernel/cmd kernel/sdk` and `-- docs/M1-DESIGN.md` both empty.
-- [ ] **Step 7: open the PR** — `chatgpt/m1-6-engineering-workflow` → `main`, title **M1.6 — Engineering Workflow (composition)**, body: the 11 tasks (1, 2, 2A, 3–10), verbatim acceptance output (Steps 3–6), deviations. No docs commit.
+- [ ] **Step 7: open the PR** — `chatgpt/m1-6-engineering-workflow` → `main`, title **M1.6 — Engineering Workflow (composition)**, body: the 10 tasks, verbatim acceptance output (Steps 3–6), deviations. No docs commit.
 
 ---
 
@@ -748,7 +649,7 @@ echo "M1.6 WORKFLOW SMOKE: OK"
 - Policy per §4.2: `local-cli` has no direct `work.transition@1`; only the `workflow.engineering.run@1` delegation scope reaches it; `org.vibe.workflow.engineering` grant carries the child capabilities; no `work.complete`, no crypto token → Task 7. The "external direct `work.transition(DONE)` denied" case (§4.4) is asserted in the smoke (Task 9) as an M1.7 preview.
 - `workflow.engineering.get` = journal projection by `work_context_id`, derived (§7) → Task 5.
 - canonical events (§9) appended at each step → Task 4.
-- ADR-002 (Human Console interaction model): the console's context switcher needs to enumerate WorkContexts → Task 2A adds the additive read-only `work.query@1` + `vibe work list`. Everything else ADR-002 needs is already in the frozen design (WorkContext as the spine keyed by `work_context_id`; `vibe task show` as a read projection; changeset = diff artifact `summary.files[]`; the worktree is a real local directory the IDE lens drives directly). No contract, authority, or state-machine change.
+- ADR-002 (Human Console interaction model): **no impact on this milestone.** Everything ADR-002 needs is already in the frozen design (WorkContext as the spine keyed by `work_context_id`; `vibe task show` as a read projection; changeset = diff artifact `summary.files[]`; the worktree is a real local directory the IDE lens drives directly). Its one M1 requirement — a falsifiable "console read-projection sufficiency" acceptance — is a `docs/M1-DESIGN.md` §10 step executed in M1.9. Context enumeration (`work.query@1`) has no M1 consumer and is a §11 NON-GOAL (UI phase).
 - Deferred correctly: the M1.7 adversarial battery (stale review / wrong-diff / failed-test-cannot-DONE as *dedicated* qualifications — the smoke only previews the direct-denial); the real CLI provider (M1.8); real `mvn` commands (M1.9 — smoke uses `sh -c true`); automatic rework/reconciler and `service_authority` (M2, §7).
 
 **Do-not-touch:** `docs/M1-DESIGN.md` is not edited or committed.
