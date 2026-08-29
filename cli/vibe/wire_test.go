@@ -12,7 +12,14 @@ import (
 
 func fakeGateway(t *testing.T) string {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "k.sock")
+	// Not t.TempDir(): its path embeds the (long) test name and can exceed the
+	// ~104-char sun_path limit for AF_UNIX on macOS.
+	d, err := os.MkdirTemp("", "vg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(d) })
+	sock := filepath.Join(d, "k.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
