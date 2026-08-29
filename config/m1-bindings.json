@@ -155,6 +155,24 @@
       "major": 1,
       "service": "default-review",
       "authority": "reviews-main"
+    },
+    {
+      "capability": "session.seal",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
+    },
+    {
+      "capability": "session.get",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
+    },
+    {
+      "capability": "session.query",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
     }
   ]
 }

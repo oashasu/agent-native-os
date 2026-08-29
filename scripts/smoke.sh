@@ -100,5 +100,6 @@ echo "$got_blob" | grep -q "$(printf 'diff-bytes' | base64)" || { echo "FAIL: bl
 source scripts/smoke-workspace.sh
 source scripts/smoke-agent.sh
 source scripts/smoke-artifact.sh
+source scripts/smoke-review-session.sh
 
 echo "M1 SMOKE: PASSED"

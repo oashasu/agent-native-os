@@ -136,6 +136,15 @@ func run(args []string) error {
 		default:
 			return fmt.Errorf("unknown review subcommand %q", args[1])
 		}
+	case "session":
+		switch args[1] {
+		case "seal":
+			return sessionSeal(*socket, *identity, *token, args[2:])
+		case "show":
+			return sessionShow(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown session subcommand %q", args[1])
+		}
 	case "tool":
 		switch args[1] {
 		case "run":
@@ -832,5 +841,117 @@ func reviewShow(socket, identity, token string, args []string) error {
 	}
 	r := out.Review
 	fmt.Printf("id %s\nstatus %s\ndiff_artifact_id %s\nreviewer %s\nnotes %s\n", r.ID, r.Status, r.DiffArtifactID, r.Reviewer, r.Notes)
+	return nil
+}
+
+type recoveryCheckpointView struct {
+	HeadCommit string `json:"head_commit"`
+	BaseCommit string `json:"base_commit"`
+	Branch     string `json:"branch"`
+	Dirty      bool   `json:"dirty"`
+}
+
+type sessionRecordView struct {
+	ID             string `json:"id"`
+	WorkContextID  string `json:"work_context_id"`
+	AgentRunID     string `json:"agent_run_id"`
+	ArchiveRef     string `json:"archive_ref"`
+	ArchiveHash    string `json:"archive_hash"`
+	SealedAt       string `json:"sealed_at"`
+	EventSelection struct {
+		CorrelationID string `json:"correlation_id"`
+		EventCount    int    `json:"event_count"`
+	} `json:"event_selection"`
+	RecoveryCheckpoint recoveryCheckpointView `json:"recovery_checkpoint"`
+}
+
+type sessionResponse struct {
+	SessionRecord sessionRecordView `json:"session_record"`
+}
+
+func first12(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
+}
+
+func sessionSeal(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session seal requires <work-context-id>")
+	}
+	fs := flag.NewFlagSet("session seal", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	agentRunID := fs.String("agent-run", "", "agent run id")
+	workspace := fs.String("workspace", "", "workspace path")
+	correlation := fs.String("correlation", "", "correlation id (defaults to work context id)")
+	diffArtifact := fs.String("diff-artifact", "", "diff artifact id")
+	taskID := fs.String("task", "", "task id")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *agentRunID == "" || *workspace == "" {
+		return fmt.Errorf("session seal requires -agent-run and -workspace")
+	}
+	corr := *correlation
+	if corr == "" {
+		corr = args[0]
+	}
+	payload := map[string]any{
+		"work_context_id": args[0],
+		"agent_run_id":    *agentRunID,
+		"workspace_path":  *workspace,
+		"correlation_id":  corr,
+	}
+	if *diffArtifact != "" {
+		payload["diff_artifact_id"] = *diffArtifact
+	}
+	if *taskID != "" {
+		payload["task_id"] = *taskID
+	}
+	resp, err := invoke(socket, identity, token, command("session.seal", payload))
+	if err != nil {
+		return err
+	}
+	var out sessionResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	r := out.SessionRecord
+	fmt.Printf("session %s  events %d  archive %s  hash %s  head %s\n",
+		r.ID, r.EventSelection.EventCount, r.ArchiveRef,
+		first12(r.ArchiveHash), first12(r.RecoveryCheckpoint.HeadCommit))
+	return nil
+}
+
+func sessionShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session show requires <session-id>")
+	}
+	fs := flag.NewFlagSet("session show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "session.get", Major: 1,
+		Payload: protocol.NewPayload(map[string]string{"session_id": args[0]})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out sessionResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	r := out.SessionRecord
+	fmt.Printf("id %s\nwork_context_id %s\nagent_run_id %s\narchive_ref %s\narchive_hash %s\nevents %d\nsealed_at %s\nhead_commit %s\ndirty %v\n",
+		r.ID, r.WorkContextID, r.AgentRunID, r.ArchiveRef, r.ArchiveHash,
+		r.EventSelection.EventCount, r.SealedAt,
+		r.RecoveryCheckpoint.HeadCommit, r.RecoveryCheckpoint.Dirty)
 	return nil
 }
