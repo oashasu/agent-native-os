@@ -24,25 +24,36 @@ func (m InboundControl) Ack() {
 	}
 }
 
+const defaultWriteTimeout = 5 * time.Second
+
 type ProcessClient struct {
 	runtimeID    string
 	pluginID     string
 	encMu        sync.Mutex
 	enc          *json.Encoder
+	writeTimeout time.Duration
 	pendingMu    sync.Mutex
 	pending      map[string]chan protocol.Envelope
 	events       chan InboundControl
 	streamEvents chan protocol.Envelope
 	closed       chan struct{}
+	closeOnce    sync.Once
 }
 
 func NewProcessClient(runtimeID, pluginID string, stdin io.Writer, stdout io.Reader) *ProcessClient {
-	c := &ProcessClient{runtimeID: runtimeID, pluginID: pluginID, enc: json.NewEncoder(stdin), pending: map[string]chan protocol.Envelope{}, events: make(chan InboundControl, 256), streamEvents: make(chan protocol.Envelope, 256), closed: make(chan struct{})}
+	c := &ProcessClient{runtimeID: runtimeID, pluginID: pluginID, enc: json.NewEncoder(stdin), writeTimeout: defaultWriteTimeout, pending: map[string]chan protocol.Envelope{}, events: make(chan InboundControl, 256), streamEvents: make(chan protocol.Envelope, 256), closed: make(chan struct{})}
 	go c.readLoop(stdout)
 	return c
 }
+
+// SetWriteTimeout bounds how long a single Send may block on a plugin that has
+// stopped reading its stdin. Exceeding it disconnects the client.
+func (c *ProcessClient) SetWriteTimeout(d time.Duration) { c.writeTimeout = d }
+
+func (c *ProcessClient) markClosed() { c.closeOnce.Do(func() { close(c.closed) }) }
+
 func (c *ProcessClient) readLoop(r io.Reader) {
-	defer close(c.closed)
+	defer c.markClosed()
 	defer close(c.events)
 	defer close(c.streamEvents)
 	s := bufio.NewScanner(r)
@@ -102,9 +113,28 @@ func (c *ProcessClient) readLoop(r io.Reader) {
 	}
 }
 func (c *ProcessClient) Send(e protocol.Envelope) error {
+	select {
+	case <-c.closed:
+		return fmt.Errorf("provider %s disconnected", c.pluginID)
+	default:
+	}
 	c.encMu.Lock()
 	defer c.encMu.Unlock()
-	return c.enc.Encode(e)
+	done := make(chan error, 1)
+	go func() { done <- c.enc.Encode(e) }()
+	timer := time.NewTimer(c.writeTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-c.closed:
+		return fmt.Errorf("provider %s disconnected", c.pluginID)
+	case <-timer.C:
+		// The plugin has stopped draining its stdin. Treat it as disconnected so
+		// the router stops routing to it; the supervisor will reap the process.
+		c.markClosed()
+		return fmt.Errorf("write to provider %s timed out after %s", c.pluginID, c.writeTimeout)
+	}
 }
 func (c *ProcessClient) Call(e protocol.Envelope, timeout time.Duration) (protocol.Envelope, error) {
 	ch := make(chan protocol.Envelope, 1)

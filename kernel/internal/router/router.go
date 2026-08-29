@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"sync"
+	"time"
+
 	"github.com/example/agent-native-microkernel/internal/authz"
 	"github.com/example/agent-native-microkernel/internal/registry"
 	"github.com/example/agent-native-microkernel/sdk/go/protocol"
-	"sync"
-	"time"
 )
 
 type delegationContext struct {
@@ -25,6 +27,7 @@ type streamRoute struct {
 	providerRuntime  string
 	requestID        string
 	external         chan protocol.Envelope
+	closeExternal    *sync.Once
 }
 type inflightKey struct {
 	consumer  string
@@ -34,18 +37,41 @@ type inflightRoute struct {
 	providerRuntime   string
 	providerRequestID string
 }
+const defaultStreamSendTimeout = 5 * time.Second
+
 type Router struct {
-	reg         *registry.Registry
-	auth        *authz.Engine
-	mu          sync.RWMutex
-	clients     map[string]*ProcessClient
-	streams     map[string]streamRoute
-	delegations map[string]delegationContext
-	inflight    map[inflightKey]inflightRoute
+	reg               *registry.Registry
+	auth              *authz.Engine
+	mu                sync.RWMutex
+	clients           map[string]*ProcessClient
+	streams           map[string]streamRoute
+	delegations       map[string]delegationContext
+	inflight          map[inflightKey]inflightRoute
+	streamSendTimeout time.Duration
 }
 
 func New(reg *registry.Registry, auth *authz.Engine) *Router {
-	return &Router{reg: reg, auth: auth, clients: map[string]*ProcessClient{}, streams: map[string]streamRoute{}, delegations: map[string]delegationContext{}, inflight: map[inflightKey]inflightRoute{}}
+	return &Router{reg: reg, auth: auth, clients: map[string]*ProcessClient{}, streams: map[string]streamRoute{}, delegations: map[string]delegationContext{}, inflight: map[inflightKey]inflightRoute{}, streamSendTimeout: defaultStreamSendTimeout}
+}
+
+// deliverExternal forwards one frame to an external stream consumer, bounded by
+// streamSendTimeout so one wedged consumer cannot stall the provider's other
+// streams. It returns false when the consumer did not accept the frame in time.
+func (r *Router) deliverExternal(sr streamRoute, e protocol.Envelope) bool {
+	timer := time.NewTimer(r.streamSendTimeout)
+	defer timer.Stop()
+	select {
+	case sr.external <- e:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func closeExternalOnce(sr streamRoute) {
+	if sr.external != nil && sr.closeExternal != nil {
+		sr.closeExternal.Do(func() { close(sr.external) })
+	}
 }
 func (r *Router) AddClient(runtimeID string, c *ProcessClient) {
 	r.mu.Lock()
@@ -72,7 +98,10 @@ func (r *Router) RemoveClient(runtimeID string) {
 	for _, sr := range affected {
 		closeEnv := protocol.Envelope{Protocol: 1, MessageID: protocol.NewID("sclose"), Kind: protocol.KindStreamClose, StreamID: sr.streamID, Error: &protocol.Error{Code: "PROVIDER_DISCONNECTED", Message: "stream provider disconnected", Retryable: true}}
 		if sr.external != nil {
-			go func(ch chan protocol.Envelope, e protocol.Envelope) { ch <- e; close(ch) }(sr.external, closeEnv)
+			go func(s streamRoute, e protocol.Envelope) {
+				_ = r.deliverExternal(s, e)
+				closeExternalOnce(s)
+			}(sr, closeEnv)
 		} else {
 			r.mu.RLock()
 			target := r.clients[sr.consumerRuntime]
@@ -137,9 +166,25 @@ func (r *Router) forwardStream(providerRuntime string, e protocol.Envelope) {
 		return
 	}
 	if sr.external != nil {
-		sr.external <- e
+		if !r.deliverExternal(sr, e) {
+			// External consumer is not draining: abandon just this stream so the
+			// provider's other streams keep flowing. Cancel it upstream and drop
+			// the route; close the consumer channel so a later-recovered reader
+			// unblocks.
+			r.mu.RLock()
+			p := r.clients[sr.providerRuntime]
+			r.mu.RUnlock()
+			if p != nil {
+				_ = p.Send(protocol.Envelope{Protocol: 1, MessageID: protocol.NewID("cancel"), Kind: protocol.KindCancel, StreamID: sr.streamID, ReplyTo: sr.requestID, TargetRuntime: sr.providerRuntime})
+			}
+			r.mu.Lock()
+			delete(r.streams, e.StreamID)
+			r.mu.Unlock()
+			closeExternalOnce(sr)
+			return
+		}
 		if e.Kind == protocol.KindStreamClose {
-			close(sr.external)
+			closeExternalOnce(sr)
 		}
 	} else if target != nil {
 		e.TargetRuntime = sr.consumerRuntime
@@ -290,7 +335,7 @@ func (r *Router) invoke(callerRuntime, caller string, isPlugin bool, req protoco
 				return caller
 			}
 			return ""
-		}(), providerRuntime: p.RuntimeID, requestID: req.MessageID, external: external}
+		}(), providerRuntime: p.RuntimeID, requestID: req.MessageID, external: external, closeExternal: &sync.Once{}}
 		r.mu.Unlock()
 	}
 	// Issue a fresh opaque delegation for the selected provider runtime. The
@@ -424,7 +469,11 @@ func (r *Router) publishEnvelope(callerRuntime, callerPlugin string, e protocol.
 			continue
 		}
 		if err := c.Send(e); err != nil {
-			return err
+			// Kernel event delivery is best-effort (protocol spec §9). One
+			// unreachable subscriber must not abort fan-out to the others or
+			// surface to the publisher as a failure.
+			log.Printf("event %s@%d: delivery to %s failed: %v", e.Capability, e.Major, c.pluginID, err)
+			continue
 		}
 	}
 	return nil

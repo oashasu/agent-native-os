@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,72 @@ import (
 	"github.com/example/agent-native-microkernel/internal/registry"
 	"github.com/example/agent-native-microkernel/sdk/go/protocol"
 )
+
+func TestSlowExternalConsumerDoesNotStallOtherStreams(t *testing.T) {
+	r := New(registry.New(), authz.New())
+	r.streamSendTimeout = 50 * time.Millisecond
+
+	provIn, kernelToProv := io.Pipe()
+	provStdoutR, provStdoutW := io.Pipe()
+	defer provStdoutW.Close() // keep the provider's readLoop alive
+	r.AddClient("prov", NewProcessClient("prov", "org.vibe.prov", kernelToProv, provStdoutR))
+	cancels := make(chan protocol.Envelope, 4)
+	go func() {
+		dec := json.NewDecoder(provIn)
+		for {
+			var e protocol.Envelope
+			if dec.Decode(&e) != nil {
+				return
+			}
+			if e.Kind == protocol.KindCancel {
+				cancels <- e
+			}
+		}
+	}()
+
+	stalled := make(chan protocol.Envelope)      // never drained
+	live := make(chan protocol.Envelope, 4)      // healthy consumer
+	r.mu.Lock()
+	r.streams["A"] = streamRoute{streamID: "A", providerRuntime: "prov", requestID: "reqA", external: stalled, closeExternal: &sync.Once{}}
+	r.streams["B"] = streamRoute{streamID: "B", providerRuntime: "prov", requestID: "reqB", external: live, closeExternal: &sync.Once{}}
+	r.mu.Unlock()
+
+	doneA := make(chan struct{})
+	go func() {
+		r.forwardStream("prov", protocol.Envelope{Protocol: 1, MessageID: "fA", Kind: protocol.KindStreamData, StreamID: "A"})
+		close(doneA)
+	}()
+	select {
+	case <-doneA:
+	case <-time.After(2 * time.Second):
+		t.Fatal("forwardStream blocked on a stalled external consumer")
+	}
+
+	r.forwardStream("prov", protocol.Envelope{Protocol: 1, MessageID: "fB", Kind: protocol.KindStreamData, StreamID: "B"})
+	select {
+	case f := <-live:
+		if f.StreamID != "B" {
+			t.Fatalf("wrong frame delivered to healthy stream: %+v", f)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("healthy stream B stalled behind stream A")
+	}
+
+	select {
+	case c := <-cancels:
+		if c.StreamID != "A" {
+			t.Fatalf("cancel targeted the wrong stream: %+v", c)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stalled stream's provider was not cancelled")
+	}
+	r.mu.RLock()
+	_, stillA := r.streams["A"]
+	r.mu.RUnlock()
+	if stillA {
+		t.Fatal("stalled stream route was not removed")
+	}
+}
 
 func TestProviderErrorPassesThroughRouterUnchanged(t *testing.T) {
 	reg := registry.New()
@@ -148,6 +215,97 @@ func TestEventAuthorizationAndCallerIntegrity(t *testing.T) {
 	auth.SetGrant(publisher.Plugin.ID, authz.Grant{})
 	if err := r.PublishEnvelope(publisher.Plugin.ID, forged); err == nil {
 		t.Fatal("publish without host grant must be denied")
+	}
+}
+
+type blockingWriter struct{ release chan struct{} }
+
+func (b blockingWriter) Write(p []byte) (int, error) { <-b.release; return len(p), nil }
+
+func TestSendToStuckProviderTimesOutInsteadOfBlocking(t *testing.T) {
+	bw := blockingWriter{release: make(chan struct{})}
+	defer close(bw.release)
+	stdoutR, stdoutW := io.Pipe()
+	defer stdoutW.Close() // keep readLoop alive so c.closed is not set by EOF
+	pc := NewProcessClient("rt-stuck", "org.vibe.stuck", bw, stdoutR)
+	pc.SetWriteTimeout(50 * time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- pc.Send(protocol.Envelope{Protocol: 1, MessageID: "x", Kind: protocol.KindEvent, Capability: "c", Major: 1})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Send to a stuck provider returned nil instead of a timeout error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send blocked on a stuck provider instead of timing out")
+	}
+
+	// After a write timeout the client is disconnected: further sends fail fast.
+	second := make(chan error, 1)
+	go func() {
+		second <- pc.Send(protocol.Envelope{Protocol: 1, MessageID: "y", Kind: protocol.KindEvent, Capability: "c", Major: 1})
+	}()
+	select {
+	case err := <-second:
+		if err == nil {
+			t.Fatal("send after write timeout should fail fast, got nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send after write timeout still blocked")
+	}
+}
+
+func TestEventFanoutSurvivesABrokenSubscriber(t *testing.T) {
+	meta := contractmeta.Metadata{Contract: "sensitive.changed@1", Kind: protocol.KindEvent}
+	reg := registry.New()
+	reg.SetContractCatalog(&contractmeta.Catalog{
+		ByContract:   map[string]contractmeta.Metadata{"sensitive.changed@1": meta},
+		ByCapability: map[string]contractmeta.Metadata{"sensitive.changed@1": meta},
+	})
+	publisher := manifest.Manifest{Plugin: manifest.Plugin{ID: "org.vibe.publisher"}, Publishes: []manifest.Capability{{Name: "sensitive.changed", Major: 1, Contract: "sensitive.changed@1"}}}
+	broken := manifest.Manifest{Plugin: manifest.Plugin{ID: "org.vibe.broken"}, Subscribes: []manifest.Capability{{Name: "sensitive.changed", Major: 1, Contract: "sensitive.changed@1"}}}
+	healthy := manifest.Manifest{Plugin: manifest.Plugin{ID: "org.vibe.healthy"}, Subscribes: []manifest.Capability{{Name: "sensitive.changed", Major: 1, Contract: "sensitive.changed@1"}}}
+	for _, m := range []manifest.Manifest{publisher, broken, healthy} {
+		if err := reg.AddManifest(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	auth := authz.New()
+	auth.SetGrant(publisher.Plugin.ID, authz.Grant{Publishes: []string{"sensitive.changed@1"}})
+	auth.SetGrant(broken.Plugin.ID, authz.Grant{Subscribes: []string{"sensitive.changed@1"}})
+	auth.SetGrant(healthy.Plugin.ID, authz.Grant{Subscribes: []string{"sensitive.changed@1"}})
+	r := New(reg, auth)
+
+	// The broken subscriber's stdin has no reader: every kernel write to it fails.
+	brokenIn, kernelToBroken := io.Pipe()
+	_ = brokenIn.Close()
+	r.AddClient("rt-broken", NewProcessClient("rt-broken", broken.Plugin.ID, kernelToBroken, strings.NewReader("")))
+
+	healthyIn, kernelToHealthy := io.Pipe()
+	healthyToKernel, healthyOut := io.Pipe()
+	defer healthyIn.Close()
+	defer healthyOut.Close()
+	r.AddClient("rt-healthy", NewProcessClient("rt-healthy", healthy.Plugin.ID, kernelToHealthy, healthyToKernel))
+
+	got := make(chan struct{}, 1)
+	go func() {
+		var e protocol.Envelope
+		if json.NewDecoder(healthyIn).Decode(&e) == nil {
+			got <- struct{}{}
+		}
+	}()
+
+	evt := protocol.Envelope{Protocol: 1, MessageID: "evt-1", Kind: protocol.KindEvent, Capability: "sensitive.changed", Major: 1, Payload: protocol.NewPayload(map[string]any{"x": 1})}
+	if err := r.PublishEnvelope(publisher.Plugin.ID, evt); err != nil {
+		t.Fatalf("a broken subscriber must not surface as a publish error: %v", err)
+	}
+	select {
+	case <-got:
+	case <-time.After(time.Second):
+		t.Fatal("healthy subscriber did not receive the event after a broken subscriber")
 	}
 }
 
