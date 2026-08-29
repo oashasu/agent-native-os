@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "agent.run@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": { "type": "string" },
+      "workspace_path": { "type": "string" },
+      "prompt": { "type": "string" },
+      "provider": { "type": "string" },
+      "mock_steps": { "type": "integer" },
+      "mock_delay_ms": { "type": "integer" },
+      "mock_fail_at": { "type": "integer" },
+      "mock_write_file": { "type": "string" },
+      "mock_write_content": { "type": "string" }
+    },
+    "required": ["work_context_id", "workspace_path", "prompt"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "agent_run": { "type": "object" },
+      "stream_id": { "type": "string" }
+    },
+    "required": ["agent_run", "stream_id"]
+  }
+}
