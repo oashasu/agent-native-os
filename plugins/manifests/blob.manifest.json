@@ -1,0 +1,17 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.blob", "version": "1.0.0" },
+  "runtime": {
+    "protocol": "vibe-plugin/1",
+    "executable": "../bin/blob",
+    "isolation": "process",
+    "data_namespace": "state-authority/blob-main"
+  },
+  "exports": [
+    { "capability": "blob.put", "major": 1, "contract": "blob.put@1", "mode": "stateful", "service": "default-blob", "authority": "blob-main", "priority": 100 },
+    { "capability": "blob.get", "major": 1, "contract": "blob.get@1", "mode": "stateful", "service": "default-blob", "authority": "blob-main", "priority": 100 },
+    { "capability": "blob.stat", "major": 1, "contract": "blob.stat@1", "mode": "stateful", "service": "default-blob", "authority": "blob-main", "priority": 100 }
+  ],
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 100 },
+  "resources": { "memory_mb": 128, "cpu_weight": 20 }
+}
