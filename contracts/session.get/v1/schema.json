@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "compatibility": "backward-within-major",
+  "contract": "session.get@1",
+  "kind": "query",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "session_record": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "session_record"
+    ]
+  }
+}

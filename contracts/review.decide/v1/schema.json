@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "compatibility": "backward-within-major",
+  "contract": "review.decide@1",
+  "kind": "command",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "review_id": {
+        "type": "string"
+      },
+      "decision": {
+        "type": "string",
+        "enum": [
+          "APPROVED",
+          "CHANGES_REQUESTED"
+        ]
+      },
+      "reviewer": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "string"
+      },
+      "acceptance_results": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "criterion_id": {
+              "type": "string"
+            },
+            "satisfied": {
+              "type": "boolean"
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "criterion_id",
+            "satisfied"
+          ]
+        }
+      }
+    },
+    "required": [
+      "review_id",
+      "decision"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "review": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "review"
+    ]
+  }
+}

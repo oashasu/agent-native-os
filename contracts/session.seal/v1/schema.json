@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "compatibility": "backward-within-major",
+  "contract": "session.seal@1",
+  "kind": "command",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": {
+        "type": "string"
+      },
+      "agent_run_id": {
+        "type": "string"
+      },
+      "workspace_path": {
+        "type": "string"
+      },
+      "correlation_id": {
+        "type": "string"
+      },
+      "event_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "event_sha256s": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "diff_artifact_id": {
+        "type": "string"
+      },
+      "task_id": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "harness_native_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "work_context_id",
+      "agent_run_id",
+      "workspace_path"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "session_record": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "session_record"
+    ]
+  }
+}

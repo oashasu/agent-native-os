@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "compatibility": "backward-within-major",
+  "contract": "review.query@1",
+  "kind": "query",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "work_context_id"
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "reviews": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "reviews"
+    ]
+  }
+}

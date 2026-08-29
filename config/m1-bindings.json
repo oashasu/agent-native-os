@@ -131,6 +131,48 @@
       "major": 1,
       "service": "default-tool-runner",
       "authority": "toolruns-main"
+    },
+    {
+      "capability": "review.request",
+      "major": 1,
+      "service": "default-review",
+      "authority": "reviews-main"
+    },
+    {
+      "capability": "review.decide",
+      "major": 1,
+      "service": "default-review",
+      "authority": "reviews-main"
+    },
+    {
+      "capability": "review.get",
+      "major": 1,
+      "service": "default-review",
+      "authority": "reviews-main"
+    },
+    {
+      "capability": "review.query",
+      "major": 1,
+      "service": "default-review",
+      "authority": "reviews-main"
+    },
+    {
+      "capability": "session.seal",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
+    },
+    {
+      "capability": "session.get",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
+    },
+    {
+      "capability": "session.query",
+      "major": 1,
+      "service": "default-session",
+      "authority": "sessions-main"
     }
   ]
 }
