@@ -2,7 +2,7 @@
 
 日期：2026-08-29
 状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）+ ADR-002 交互模型对齐（2026-08-29：契约面零改动；净影响 = §10 增一条可证伪的 Console 读投影验收 + §11 scope 澄清）**
-前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）
+前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）、`ADR-003`（TUI/GUI 前端选择推迟 —— 对 M1 无影响）
 方向输入：项目所有者 + Codex（Q1=A / Q2=Real Harness + mock 双轨 / M1 Architecture Gate / 条件批准）
 
 ---
