@@ -1,78 +1,69 @@
 {
   "clients": {
-    "local-cli": {
-      "token_sha256": "fae22dea5494a204ef9f3f28dcf76fb431426172eb885afb7929aa725986d77b"
-    }
+    "local-cli": { "token_sha256": "fae22dea5494a204ef9f3f28dcf76fb431426172eb885afb7929aa725986d77b" },
+    "m1-dev": { "token_sha256": "68d2b53bd7b2ecf95c36eeb6761d112d32d3387ef7c9e563cf8ff3cc8d01317d" }
   },
   "grants": {
     "local-cli": {
       "capabilities": [
-        "event.journal.append@1",
-        "event.journal.replay@1",
-        "blob.put@1",
-        "blob.get@1",
-        "blob.stat@1",
-        "work.create@1",
-        "work.get@1",
-        "work.transition@1",
-        "work.attach_evidence@1",
-        "workspace.allocate@1",
-        "workspace.release@1",
-        "workspace.get@1",
-        "agent.run@1",
-        "agent.run.get@1",
-        "agent.run.query@1",
-        "agent.run.cancel@1",
-        "artifact.collect_diff@1",
-        "artifact.get@1",
-        "artifact.query@1",
-        "tool.run@1",
-        "tool.run.get@1",
-        "tool.run.query@1",
-        "review.request@1",
-        "review.decide@1",
-        "review.get@1",
-        "review.query@1",
-        "session.seal@1",
-        "session.get@1",
-        "session.query@1"
-      ]
-    },
-    "org.vibe.event.journal": {
-      "capabilities": []
-    },
-    "org.vibe.blob": {
-      "capabilities": []
-    },
-    "org.vibe.work.registry": {
-      "capabilities": []
-    },
-    "org.vibe.workspace": {
-      "capabilities": []
-    },
-    "org.vibe.agent.harness": {
-      "capabilities": [
-        "blob.put@1"
+        "work.create@1", "work.get@1",
+        "workflow.engineering.run@1", "workflow.engineering.get@1",
+        "review.request@1", "review.decide@1", "review.get@1", "review.query@1",
+        "agent.run.get@1", "agent.run.query@1",
+        "artifact.get@1", "artifact.query@1",
+        "tool.run.get@1", "tool.run.query@1",
+        "workspace.get@1", "session.get@1", "session.query@1",
+        "blob.get@1", "blob.stat@1",
+        "event.journal.replay@1"
       ],
-      "service_authority": true
+      "delegations": {
+        "workflow.engineering.run@1": [
+          "work.get@1", "work.transition@1",
+          "workspace.allocate@1", "workspace.release@1",
+          "agent.run@1", "agent.run.get@1",
+          "artifact.collect_diff@1",
+          "tool.run@1",
+          "work.attach_evidence@1",
+          "review.request@1", "review.get@1",
+          "session.seal@1",
+          "event.journal.append@1", "event.journal.replay@1",
+          "blob.put@1"
+        ]
+      }
     },
-    "org.vibe.artifact": {
+    "m1-dev": {
       "capabilities": [
-        "blob.put@1"
+        "event.journal.append@1", "event.journal.replay@1",
+        "blob.put@1", "blob.get@1", "blob.stat@1",
+        "work.create@1", "work.get@1", "work.transition@1", "work.attach_evidence@1",
+        "workspace.allocate@1", "workspace.release@1", "workspace.get@1",
+        "agent.run@1", "agent.run.get@1", "agent.run.query@1", "agent.run.cancel@1",
+        "artifact.collect_diff@1", "artifact.get@1", "artifact.query@1",
+        "tool.run@1", "tool.run.get@1", "tool.run.query@1",
+        "review.request@1", "review.decide@1", "review.get@1", "review.query@1",
+        "session.seal@1", "session.get@1", "session.query@1",
+        "workflow.engineering.run@1", "workflow.engineering.get@1"
       ]
     },
-    "org.vibe.tool.runner": {
+    "org.vibe.event.journal": { "capabilities": [] },
+    "org.vibe.blob": { "capabilities": [] },
+    "org.vibe.work.registry": { "capabilities": [] },
+    "org.vibe.workspace": { "capabilities": [] },
+    "org.vibe.agent.harness": { "capabilities": ["blob.put@1"], "service_authority": true },
+    "org.vibe.artifact": { "capabilities": ["blob.put@1"] },
+    "org.vibe.tool.runner": { "capabilities": ["blob.put@1"] },
+    "org.vibe.review": { "capabilities": [] },
+    "org.vibe.session": { "capabilities": ["event.journal.replay@1", "blob.put@1"] },
+    "org.vibe.workflow.engineering": {
       "capabilities": [
-        "blob.put@1"
-      ]
-    },
-    "org.vibe.review": {
-      "capabilities": []
-    },
-    "org.vibe.session": {
-      "capabilities": [
-        "event.journal.replay@1",
-        "blob.put@1"
+        "work.get@1", "work.transition@1", "work.attach_evidence@1",
+        "workspace.allocate@1", "workspace.release@1",
+        "agent.run@1", "agent.run.get@1",
+        "artifact.collect_diff@1",
+        "tool.run@1",
+        "review.request@1", "review.get@1",
+        "session.seal@1",
+        "event.journal.append@1", "event.journal.replay@1"
       ]
     }
   }

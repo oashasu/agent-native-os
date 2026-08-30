@@ -3,8 +3,8 @@
 # command, verify evidence + blob refs + fingerprint, and survive a kernel restart.
 # Assumes SOCK/DATA/TOKEN exported and restart_kernel available.
 set -euo pipefail
-V=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"
-RAW=".bin/vibe-raw -socket $SOCK -identity local-cli -token $TOKEN"
+V=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
+RAW=".bin/vibe-raw -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
 
 SRC="$DATA/artsrc"
 mkdir -p "$SRC"

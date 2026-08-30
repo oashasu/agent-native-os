@@ -3,8 +3,8 @@
 # AgentRun goes terminal, the transcript blob resolves, the workspace file changed,
 # and the run survives a kernel restart.
 set -euo pipefail
-V=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"
-RAW=".bin/vibe-raw -socket $SOCK -identity local-cli -token $TOKEN"
+V=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
+RAW=".bin/vibe-raw -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
 
 SRC="$DATA/agentsrc"
 mkdir -p "$SRC"

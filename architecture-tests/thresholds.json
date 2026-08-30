@@ -1,4 +1,5 @@
 {
   "consume_warn": 6,
-  "consume_fail": 12
+  "consume_fail": 12,
+  "_note": "Composition plugins are intentionally exempt from fan-in ceilings but must not own stateful exports."
 }

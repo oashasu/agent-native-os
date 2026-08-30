@@ -3,8 +3,8 @@
 # seal a Session, verify the archive blob structure, the RecoveryCheckpoint head commit,
 # and that both survive a kernel restart.
 set -euo pipefail
-V=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"
-RAW=".bin/vibe-raw -socket $SOCK -identity local-cli -token $TOKEN"
+V=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
+RAW=".bin/vibe-raw -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
 
 SRC="$DATA/rssrc"; mkdir -p "$SRC"
 git -C "$SRC" -c init.defaultBranch=main init -q

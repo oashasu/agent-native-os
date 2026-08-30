@@ -8,7 +8,9 @@ DATA="$(mktemp -d)"
 SOCK="$DATA/kernel.sock"
 export VIBE_DATA_ROOT="$DATA/data"
 TOKEN='m1-local-cli-token'
+DEV_TOKEN='m1-dev-token'
 export VIBE_CLIENT_TOKEN="$TOKEN"
+export DEV_TOKEN
 KPID=""
 
 # kill_kernel_tree stops the kernel AND its plugin child processes. The kernel
@@ -60,7 +62,7 @@ trap 'kill_kernel_tree "${KPID:-}"; rm -rf "$DATA"' EXIT
 
 restart_kernel
 
-append_out="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
+append_out="$(.bin/vibe-raw -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
   -cap event.journal.append -kind command \
   -service default-event-journal -authority journal-main \
   -payload '{"type":"m1.smoke","source":"scripts/smoke.sh","payload":{"ok":true}}')"
@@ -78,11 +80,11 @@ echo "$create_out" | grep -q 'status PLANNED' || { echo "FAIL: task create: $cre
 TASK_ID="$(echo "$create_out" | sed -n 's/^task \([^ ]*\).*/\1/p')"
 WC_ID="$(echo "$create_out" | sed -n 's/.*wc \([^ ]*\).*/\1/p')"
 
-.bin/vibe -socket "$SOCK" -identity local-cli -token "$TOKEN" \
+.bin/vibe -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
   task transition "$WC_ID" -to IN_PROGRESS -expected-version 1 | grep -q 'IN_PROGRESS' \
   || { echo "FAIL: transition"; exit 1; }
 
-blob_out="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
+blob_out="$(.bin/vibe-raw -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
   -cap blob.put -kind command -service default-blob -authority blob-main \
   -payload "{\"content_base64\":\"$(printf 'diff-bytes' | base64)\"}")"
 BLOB_URI="$(echo "$blob_out" | sed -n 's/.*"uri":"\([^"]*\)".*/\1/p')"
@@ -101,5 +103,6 @@ source scripts/smoke-workspace.sh
 source scripts/smoke-agent.sh
 source scripts/smoke-artifact.sh
 source scripts/smoke-review-session.sh
+source scripts/smoke-workflow.sh
 
 echo "M1 SMOKE: PASSED"

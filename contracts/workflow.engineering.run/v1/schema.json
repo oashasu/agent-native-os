@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "workflow.engineering.run@1",
+  "version": "1.0.0",
+  "kind": "command",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "task_id": { "type": "string" },
+      "prompt": { "type": "string" },
+      "build_command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+      "test_command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+      "base_ref": { "type": "string" },
+      "review_poll_ms": { "type": "integer" },
+      "mock_agent_write_file": { "type": "string" },
+      "mock_agent_write_content": { "type": "string" }
+    },
+    "required": ["task_id", "prompt", "build_command", "test_command"]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": { "result": { "type": "object" } },
+    "required": ["result"]
+  }
+}
