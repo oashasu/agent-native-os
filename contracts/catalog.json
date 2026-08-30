@@ -27,5 +27,7 @@
   "review.query@1": "review.query/v1/schema.json",
   "session.seal@1": "session.seal/v1/schema.json",
   "session.get@1": "session.get/v1/schema.json",
-  "session.query@1": "session.query/v1/schema.json"
+  "session.query@1": "session.query/v1/schema.json",
+  "workflow.engineering.run@1": "workflow.engineering.run/v1/schema.json",
+  "workflow.engineering.get@1": "workflow.engineering.get/v1/schema.json"
 }

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "workflow.engineering.get@1",
+  "version": "1.0.0",
+  "kind": "query",
+  "compatibility": "backward-within-major",
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "work_context_id": { "type": "string" },
+      "task_id": { "type": "string" }
+    },
+    "oneOf": [
+      { "required": ["work_context_id"], "not": { "required": ["task_id"] } },
+      { "required": ["task_id"], "not": { "required": ["work_context_id"] } }
+    ]
+  },
+  "response": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "stage": { "type": "string" },
+      "events": { "type": "array" },
+      "outcome": { "type": "string" }
+    },
+    "required": ["stage", "events"]
+  }
+}
