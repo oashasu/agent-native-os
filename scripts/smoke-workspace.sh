@@ -2,7 +2,7 @@
 # M1.2 smoke fragment: allocate a worktree for a WorkContext, verify it, survive a
 # kernel restart, release with policy=preserve, confirm the worktree is kept.
 set -euo pipefail
-V=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"
+V=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
 
 SRC="$DATA/srcrepo"
 mkdir -p "$SRC"

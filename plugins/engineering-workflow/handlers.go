@@ -136,19 +136,31 @@ func realCaps(rc *pluginhost.RequestContext, _ protocol.Envelope) caps {
 			}
 			for range stream.C {
 			}
-			resp, err := rc.Query("agent.run.get", 1, map[string]string{"agent_run_id": a.AgentRun.ID}, 30*time.Second)
-			if err != nil {
-				return a.AgentRun.ID, "", err
+			// The frame stream closes when the provider's frame goroutine returns;
+			// the harness persists the terminal status a moment later (blob.put +
+			// RecordCompleted). Poll agent.run.get until the run is no longer
+			// RUNNING — same pattern the M1.3 agent smoke uses.
+			var status string
+			for i := 0; i < 200; i++ {
+				resp, err := rc.Query("agent.run.get", 1, map[string]string{"agent_run_id": a.AgentRun.ID}, 30*time.Second)
+				if err != nil {
+					return a.AgentRun.ID, "", err
+				}
+				var g struct {
+					AgentRun struct {
+						Status string `json:"status"`
+					} `json:"agent_run"`
+				}
+				if err = decode(resp, &g); err != nil {
+					return a.AgentRun.ID, "", err
+				}
+				status = g.AgentRun.Status
+				if status != "" && status != "RUNNING" {
+					break
+				}
+				time.Sleep(25 * time.Millisecond)
 			}
-			var g struct {
-				AgentRun struct {
-					Status string `json:"status"`
-				} `json:"agent_run"`
-			}
-			if err = decode(resp, &g); err != nil {
-				return a.AgentRun.ID, "", err
-			}
-			return a.AgentRun.ID, g.AgentRun.Status, nil
+			return a.AgentRun.ID, status, nil
 		},
 		CollectDiff: func(wc, path string) (string, int, error) {
 			resp, err := rc.Command("artifact.collect_diff", 1, map[string]string{"work_context_id": wc, "workspace_path": path}, 2*time.Minute)

@@ -154,6 +154,15 @@ func run(args []string) error {
 		default:
 			return fmt.Errorf("unknown tool subcommand %q", args[1])
 		}
+	case "workflow":
+		switch args[1] {
+		case "run":
+			return workflowRun(*socket, *identity, *token, args[2:])
+		case "show":
+			return workflowShow(*socket, *identity, *token, args[2:])
+		default:
+			return fmt.Errorf("unknown workflow subcommand %q", args[1])
+		}
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -953,5 +962,139 @@ func sessionShow(socket, identity, token string, args []string) error {
 		r.ID, r.WorkContextID, r.AgentRunID, r.ArchiveRef, r.ArchiveHash,
 		r.EventSelection.EventCount, r.SealedAt,
 		r.RecoveryCheckpoint.HeadCommit, r.RecoveryCheckpoint.Dirty)
+	return nil
+}
+
+type workflowRunResult struct {
+	WorkContextID  string   `json:"work_context_id"`
+	TaskID         string   `json:"task_id"`
+	Outcome        string   `json:"outcome"`
+	Reason         string   `json:"reason"`
+	AgentRunID     string   `json:"agent_run_id"`
+	DiffArtifactID string   `json:"diff_artifact_id"`
+	BuildToolRunID string   `json:"build_tool_run_id"`
+	TestToolRunID  string   `json:"test_tool_run_id"`
+	ReviewID       string   `json:"review_id"`
+	SessionID      string   `json:"session_id"`
+	EventIDs       []string `json:"event_ids"`
+}
+
+type workflowRunResponse struct {
+	Result workflowRunResult `json:"result"`
+}
+
+func splitArgv(s string) []string {
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return []string{"sh", "-c", "true"}
+	}
+	return f
+}
+
+func workflowRun(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("workflow run requires <task-id>")
+	}
+	taskID := args[0]
+	fs := flag.NewFlagSet("workflow run", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	prompt := fs.String("prompt", "", "agent prompt")
+	build := fs.String("build", "sh -c true", "build command (space-split argv)")
+	test := fs.String("test", "sh -c true", "test command (space-split argv)")
+	baseRef := fs.String("base-ref", "", "worktree base ref")
+	pollMS := fs.Int("review-poll-ms", 0, "WAITING_REVIEW poll interval ms (0 = plugin default)")
+	mockFile := fs.String("mock-write-file", "", "mock provider: relative file to write")
+	mockContent := fs.String("mock-write-content", "", "mock provider: content to write")
+	timeout := fs.Duration("timeout", 30*time.Minute, "overall deadline")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *prompt == "" {
+		return fmt.Errorf("-prompt is required")
+	}
+	payload := map[string]any{
+		"task_id":       taskID,
+		"prompt":        *prompt,
+		"build_command": splitArgv(*build),
+		"test_command":  splitArgv(*test),
+	}
+	if *baseRef != "" {
+		payload["base_ref"] = *baseRef
+	}
+	if *pollMS > 0 {
+		payload["review_poll_ms"] = *pollMS
+	}
+	if *mockFile != "" {
+		payload["mock_agent_write_file"] = *mockFile
+	}
+	if *mockContent != "" {
+		payload["mock_agent_write_content"] = *mockContent
+	}
+	req := protocol.Envelope{
+		Kind: protocol.KindCommand, Capability: "workflow.engineering.run", Major: 1,
+		Deadline: time.Now().Add(*timeout).Format(time.RFC3339Nano),
+		Payload:  protocol.NewPayload(payload),
+	}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	var out workflowRunResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	r := out.Result
+	fmt.Printf("outcome %s  task %s  reason %s\n", r.Outcome, r.TaskID, r.Reason)
+	fmt.Printf("work_context %s  agent_run %s  diff %s  review %s  session %s\n",
+		r.WorkContextID, r.AgentRunID, r.DiffArtifactID, r.ReviewID, r.SessionID)
+	fmt.Printf("build_tool_run %s  test_tool_run %s  events %d\n",
+		r.BuildToolRunID, r.TestToolRunID, len(r.EventIDs))
+	if r.Outcome != "DONE" {
+		return fmt.Errorf("workflow outcome %s: %s", r.Outcome, r.Reason)
+	}
+	return nil
+}
+
+type workflowGetResponse struct {
+	Stage   string           `json:"stage"`
+	Outcome string           `json:"outcome"`
+	Events  []map[string]any `json:"events"`
+}
+
+func workflowShow(socket, identity, token string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("workflow show requires <task-id or work-context-id>")
+	}
+	id := args[0]
+	fs := flag.NewFlagSet("workflow show", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print raw response payload")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	key := "task_id"
+	if strings.HasPrefix(id, "wc-") {
+		key = "work_context_id"
+	}
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "workflow.engineering.get", Major: 1,
+		Payload: protocol.NewPayload(map[string]string{key: id})}
+	resp, err := invoke(socket, identity, token, req)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(string(resp.Payload))
+		return nil
+	}
+	var out workflowGetResponse
+	if err := json.Unmarshal(resp.Payload, &out); err != nil {
+		return err
+	}
+	fmt.Printf("stage %s  outcome %s  events %d\n", out.Stage, out.Outcome, len(out.Events))
+	for _, e := range out.Events {
+		if t, ok := e["type"].(string); ok {
+			fmt.Printf("  %s\n", t)
+		}
+	}
 	return nil
 }
