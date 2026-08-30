@@ -26,11 +26,11 @@ docs/superpowers/plans/2026-08-29-m1-6-engineering-workflow.md
 
 | # | 检查（给出命令） | 自修（已预授权，直接做） | 升级（只有这种才停） |
 |---|---|---|---|
-| 1 | 解压后 `git log --oneline -1` 是不是 M1.5 之后的 docs 提交（"ADR-003 …" 那条） | 不是就说明 tarball 不对，停 | tarball 内容与预期基线不符 |
-| 2 | `git status --porcelain` 是否干净 | 有解压残留（`.DS_Store`、`vibe`、`.bin/`）直接删 | 有你没写过的**源码**改动 |
-| 3 | tarball 解压后 git 可用 | ownership 报错就 `git config --global --add safe.directory <path>` | git 本身不可用 |
+| 1 | tarball 解压后 git 可用（`git log --oneline`） | ownership 报错就 `git config --global --add safe.directory <path>` | git 本身不可用 |
+| 2 | `git log --oneline` 只有一条 `M1.6 handoff snapshot of agent-native-os` 提交 | — | log 不是这条 snapshot 提交（tarball 不对） |
+| 3 | `git status --porcelain` 为空 | 有 `.DS_Store` 之类可删残留就删 | 非空且不是可删残留 —— 说明 tarball 工作树与它自己的 `.git` 不一致（缺文件 / 多文件），停 |
 | 4 | `go build ./plugins/... ./cli/...` + `(cd kernel && go build ./...)` 三模块能过 | `rm -f ./vibe` 之类的产物残留 | 基线就编译失败 |
-| 5 | `python3 -c "import jsonschema"` 可用 | 沙箱内 `pip install jsonschema`（若可用） | 装不上 → 契约检查降级见下 |
+| 5 | `python3 -c "import jsonschema"` 可用 | 沙箱内 `pip install jsonschema`（若可用） | 装不上 → 契约检查降级见退路表（不停车） |
 | 6 | 基线数字：`python3 scripts/check-contracts.py --root contracts` → `29 contracts`；`ls plugins/manifests/*.manifest.json \| wc -l` → `9` | 实际值不同就**以命令输出为准**，记录，继续 | — |
 
 **第 6 条是纪律**：本提示词和计划里的每个数字，都必须能用这里给出的命令原样复现。
