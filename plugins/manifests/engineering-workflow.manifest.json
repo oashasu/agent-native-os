@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "plugin": { "id": "org.vibe.workflow.engineering", "version": "1.0.0" },
+  "runtime": { "protocol": "vibe-plugin/1", "executable": "../bin/engineering-workflow", "isolation": "process" },
+  "composition": true,
+  "exports": [
+    { "capability": "workflow.engineering.run", "major": 1, "contract": "workflow.engineering.run@1", "mode": "stateless", "priority": 100 },
+    { "capability": "workflow.engineering.get", "major": 1, "contract": "workflow.engineering.get@1", "mode": "stateless", "priority": 100 }
+  ],
+  "consumes": { "required": [
+    { "capability": "work.get", "major": 1, "contract": "work.get@1" },
+    { "capability": "work.transition", "major": 1, "contract": "work.transition@1" },
+    { "capability": "work.attach_evidence", "major": 1, "contract": "work.attach_evidence@1" },
+    { "capability": "workspace.allocate", "major": 1, "contract": "workspace.allocate@1" },
+    { "capability": "workspace.release", "major": 1, "contract": "workspace.release@1" },
+    { "capability": "agent.run", "major": 1, "contract": "agent.run@1" },
+    { "capability": "agent.run.get", "major": 1, "contract": "agent.run.get@1" },
+    { "capability": "artifact.collect_diff", "major": 1, "contract": "artifact.collect_diff@1" },
+    { "capability": "tool.run", "major": 1, "contract": "tool.run@1" },
+    { "capability": "review.request", "major": 1, "contract": "review.request@1" },
+    { "capability": "review.get", "major": 1, "contract": "review.get@1" },
+    { "capability": "session.seal", "major": 1, "contract": "session.seal@1" },
+    { "capability": "event.journal.append", "major": 1, "contract": "event.journal.append@1" },
+    { "capability": "event.journal.replay", "major": 1, "contract": "event.journal.replay@1" }
+  ]},
+  "restart": { "mode": "on_failure", "max_attempts": 2, "cooldown_ms": 200 },
+  "resources": { "memory_mb": 256, "cpu_weight": 30 }
+}
