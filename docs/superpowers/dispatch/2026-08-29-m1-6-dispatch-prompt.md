@@ -15,8 +15,8 @@ docs/superpowers/plans/2026-08-29-m1-6-engineering-workflow.md
 计划共 **10 个任务**，每个任务：先写失败测试 → 跑它、确认因正确原因失败 → 写最小实现 → 跑绿 →
 （行为性改动）把生产代码改动反转一次确认测试变红、再恢复 → 按计划给定的 message 提交。
 
-**基线锚点（静态，写死）**：分支 `chatgpt/m1-6-engineering-workflow` 从 `main` 的
-**`b22e0b8`** 切出。
+**基线**：分支 `chatgpt/m1-6-engineering-workflow` 从 tarball 快照的 commit 切出。
+**开工前先 `BASE=$(git rev-parse HEAD)` 记下这个 commit**，后面所有 G1 检查都用 `$BASE`——不要写死 SHA（写死活动状态必翻车）。tarball 是断网沙箱里的权威基线；connector 那边的 SHA 会不同，正常。
 
 ---
 
@@ -26,7 +26,7 @@ docs/superpowers/plans/2026-08-29-m1-6-engineering-workflow.md
 
 | # | 检查（给出命令） | 自修（已预授权，直接做） | 升级（只有这种才停） |
 |---|---|---|---|
-| 1 | `git rev-parse HEAD` 是否为 `b22e0b8` | 不是就 `git fetch origin && git checkout b22e0b8` | 该 commit 在远端不存在 |
+| 1 | 解压后 `git log --oneline -1` 是不是 M1.5 之后的 docs 提交（"ADR-003 …" 那条） | 不是就说明 tarball 不对，停 | tarball 内容与预期基线不符 |
 | 2 | `git status --porcelain` 是否干净 | 有解压残留（`.DS_Store`、`vibe`、`.bin/`）直接删 | 有你没写过的**源码**改动 |
 | 3 | tarball 解压后 git 可用 | ownership 报错就 `git config --global --add safe.directory <path>` | git 本身不可用 |
 | 4 | `go build ./plugins/... ./cli/...` + `(cd kernel && go build ./...)` 三模块能过 | `rm -f ./vibe` 之类的产物残留 | 基线就编译失败 |
@@ -115,8 +115,8 @@ M1.5 那次在 Task 8 中途耗尽工具交互额度，留下"本地已完成但
 5. `bash scripts/smoke.sh` **跑 5 次**，每次都要 `M1.6 WORKFLOW SMOKE: OK` + `M1 SMOKE: PASSED`，零 `FAIL`
 6. G1 两个锚点均为空：
    ```
-   git diff --name-only b22e0b8 HEAD -- kernel/internal kernel/cmd kernel/sdk
-   git diff --name-only b22e0b8 HEAD -- docs/M1-DESIGN.md
+   git diff --name-only "$BASE" HEAD -- kernel/internal kernel/cmd kernel/sdk
+   git diff --name-only "$BASE" HEAD -- docs/M1-DESIGN.md
    ```
 7. 开 PR：`chatgpt/m1-6-engineering-workflow` → `main`，标题
    **M1.6 — Engineering Workflow (composition)**，正文含 10 个任务的 commit 表、
