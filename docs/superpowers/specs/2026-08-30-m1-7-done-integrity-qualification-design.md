@@ -30,7 +30,7 @@ stop and report — G4 is not actually met.
 | **S1** external direct `work.transition(<task>, DONE)` | `config/m1-policy.json`: `local-cli` has **no** `work.transition@1` grant (direct or delegated-out); it reaches `work.transition` only inside the `workflow.engineering.run@1` delegation scope | `scripts/smoke-workflow.sh` asserts the `IN_PROGRESS` denial as an "M1.7 preview" |
 | **S2** failed build/test → DONE | `plugins/engineering-workflow/gate.go` `doneGate()` — first-failure-wins conjunction, rejects `build != PASS`, `test != PASS` | `gate_test.go::TestDoneGateFailsOnEachCondition` (all 5 branches) |
 | **S3** stale / injected review → DONE | `runPipeline` always calls `ReviewRequest` itself and polls **only the review id it got back**; a pre-existing `APPROVED` review for the same WorkContext is never consulted | none (structural, untested) |
-| **S4** wrong-diff approval → DONE | `doneGate()` rejects `review.DiffArtifactID != currentDiffArtifactID` | `gate_test.go::.../wrong diff` (unit only) |
+| **S4** wrong-diff approval → DONE | `doneGate()` rejects `review.DiffArtifactID != currentDiffArtifactID` | `gate_test.go::.../wrong diff` (predicate unit test; M1.7 adds the `runPipeline`-seam test — §4 S4) |
 
 **M1 has no rework loop** (explicit NON-GOAL, §11: "自动 workflow reconciler / 自动续跑 / rework 回环").
 The workflow is single-attempt. "Stale review" in the full §4.3 sense ("diff 变了旧 review 失效")
@@ -61,10 +61,12 @@ exactly what S3 does.
 - **No policy loosening.** `config/m1-policy.json` is not relaxed. (It *is* touched
   transiently during the 致残对照 in the acceptance task, then restored — see §6.)
 - **No test-only hook in production code.** In particular, `runPipeline` gets **no**
-  `-mock-review-diff-artifact`-style flag to force a live S4 diff mismatch. S4's live
-  dimension is covered by the S3 mechanic (same `diff_artifact_id` binding path); its
-  predicate is covered by the existing `gate_test.go` unit case. This split is written
-  into the harness as a comment.
+  `-mock-review-diff-artifact`-style flag to force a live S4 diff mismatch. S4 does **not**
+  do a live foreign-diff injection (there is no such reachable path in M1 — see §4 S4): it
+  is covered by `pipeline_test.go::TestRunPipelineGateFailOnStaleDiff` for the
+  `runPipeline → doneGate` assembly and its rejection outcome, and by
+  `gate_test.go::TestDoneGateFailsOnEachCondition/'wrong diff'` for the gate predicate. The
+  harness only echoes an `S4 OK` line pointing at those two tests.
 - **No `check-arch.sh` change.** It stays static and ~1 s. The qualification is a separate
   acceptance step, mirroring the kernel's static-checks vs `m05_qualification.py` split.
 - Rework loop, `EvidenceRef.invalidated_at` population, empty-diff rejection — none of these

@@ -22,7 +22,7 @@
 - **Module paths:** kernel `github.com/example/agent-native-microkernel`; plugins `github.com/example/agent-native-os/plugins`; CLI `github.com/example/agent-native-os/cli`.
 - **Assertion discipline:** every check captures command output into a variable and matches with `case "$var" in *"..."*)`. Never `cmd | grep -q` and never `grep -o ... | head -1` — under `set -o pipefail` a downstream reader closing the pipe SIGPIPEs the producer and trips the pipeline (the flake M1.5 Task 8 and M1.6 hit). Use `grep -m1 -o` when you need the first match.
 - **Number discipline:** contract/manifest counts are unchanged at **31 contracts / 10 manifests**. If `check-arch.sh` prints different numbers, trust the command, note it, do not "fix" anything.
-- **Quote every path** in shell (`"$DATA/x"`, `git checkout "config/m1-policy.json"`).
+- **Quote every path that contains a variable** (`"$DATA/x"`, `"/tmp/m17-$i.log"`). Fixed literal script paths (`bash scripts/build.sh`, `source scripts/lib/kernel-harness.sh`) follow the repo's existing unquoted style.
 - **Commit trailer** — every commit message ends with exactly:
   ```
   Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
@@ -97,9 +97,13 @@ Untouched: `kernel/`, `plugins/**` except that one test file (and the 致残对�
 
 - [ ] **Step 1: Baseline — smoke is green before the refactor**
 
-Run: `bash scripts/smoke.sh; echo "smoke exit=$?"`
-Expected: output ends with `M1.6 WORKFLOW SMOKE: OK`, `M1 SMOKE: PASSED`, `smoke exit=0`.
-Run: `pgrep -f 'vibe-kernel|plugins/manifests' | wc -l` → `0` (no orphans).
+```bash
+bash scripts/smoke.sh >/tmp/m17-smoke-base.log 2>&1 ; rc=$?
+tail -3 /tmp/m17-smoke-base.log
+[ "$rc" -eq 0 ] && grep -qx 'M1 SMOKE: PASSED' /tmp/m17-smoke-base.log && echo BASELINE_OK || { echo "baseline smoke rc=$rc"; exit 1; }
+[ "$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')" = 0 ] && echo NO_ORPHANS || { echo orphans; exit 1; }
+```
+Expected: `M1.6 WORKFLOW SMOKE: OK` / `M1 SMOKE: PASSED` in the tail, then `BASELINE_OK`, then `NO_ORPHANS`.
 
 - [ ] **Step 2: Create `scripts/lib/kernel-harness.sh`**
 
@@ -201,17 +205,19 @@ Everything from `restart_kernel` onward (the `append_out=` block, the M1.1 check
 
 - [ ] **Step 4: Smoke is still green — run it 3×**
 
-Run:
 ```bash
 for i in 1 2 3; do
-  bash scripts/smoke.sh >"/tmp/m17-smoke-$i.log" 2>&1 || { echo "run $i FAILED"; tail -30 "/tmp/m17-smoke-$i.log"; exit 1; }
-  echo "run $i: $(tail -1 "/tmp/m17-smoke-$i.log")"
+  bash scripts/smoke.sh >"/tmp/m17-smoke-$i.log" 2>&1 ; rc=$?
+  [ "$rc" -eq 0 ] || { echo "run $i FAILED rc=$rc"; tail -30 "/tmp/m17-smoke-$i.log"; exit 1; }
+  grep -qx 'M1 SMOKE: PASSED' "/tmp/m17-smoke-$i.log" || { echo "run $i: no PASSED"; exit 1; }
+  grep -q 'M1.6 WORKFLOW SMOKE: OK' "/tmp/m17-smoke-$i.log" || { echo "run $i: no workflow-smoke"; exit 1; }
+  ! grep -q 'FAIL' "/tmp/m17-smoke-$i.log" || { echo "run $i: contains FAIL"; exit 1; }
+  echo "run $i OK"
 done
-grep -c 'M1.6 WORKFLOW SMOKE: OK' /tmp/m17-smoke-*.log
-grep -c 'FAIL' /tmp/m17-smoke-*.log
-pgrep -f 'vibe-kernel|plugins/manifests' | wc -l
+orph="$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')"
+[ "$orph" = 0 ] && echo NO_ORPHANS || { echo "orphans: $orph"; exit 1; }
 ```
-Expected: three `run N: M1 SMOKE: PASSED`; each `WORKFLOW SMOKE` count `1`; each `FAIL` count `0`; orphan count `0`.
+Expected: `run 1 OK` … `run 3 OK`, then `NO_ORPHANS`.
 
 - [ ] **Step 5: Commit**
 
@@ -494,7 +500,7 @@ echo "S3 OK: injected APPROVED review is never consulted; undecided real review 
 Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
 Expected: `S1 OK`, `S2 OK`, `S3 OK: injected APPROVED review is never consulted...`, `DONE-INTEGRITY QUALIFICATION: OK`, `qual exit=0`.
 
-If `S3 FAIL: workflow did not open its own review (real='' ...)` appears, the 20 s deadline fired before the pipeline created its review on this machine — raise both `-timeout 20s` occurrences (this task and Task 5's S4 uses none) to `40s` and re-run. Log this as a degradation; it is not a stop.
+If `S3 FAIL: workflow did not open its own review (real='' ...)` appears, the 20 s deadline fired before the pipeline created its review on this machine — raise the `-timeout 20s` in this S3 block to `40s` and re-run. Log this as a degradation; it is not a stop.
 
 - [ ] **Step 3: Falsify S3 (致残对照) — make review.get fall back to the WC's latest decision, confirm red, revert**
 
@@ -625,12 +631,14 @@ echo "S4 OK: wrong-diff review rejected by the gate (pipeline_test.go + gate_tes
 
 - [ ] **Step 5: Run the whole harness + the package tests**
 
-Run:
 ```bash
-go test ./plugins/engineering-workflow/ -v 2>&1 | tail -20
-bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"
+go test ./plugins/engineering-workflow/ && echo PKG_OK
+bash scripts/qualify-done-integrity.sh >/tmp/m17-qual-s4.log 2>&1 ; rc=$?
+tail -6 /tmp/m17-qual-s4.log
+last="$(tail -1 /tmp/m17-qual-s4.log)"
+{ [ "$rc" -eq 0 ] && [ "$last" = "DONE-INTEGRITY QUALIFICATION: OK" ]; } && echo QUAL_OK || { echo "qual rc=$rc last='$last'"; exit 1; }
 ```
-Expected: all `plugins/engineering-workflow` tests `PASS` (incl. the new one); harness prints `S1 OK`…`S4 OK`, `DONE-INTEGRITY QUALIFICATION: OK`, `qual exit=0`.
+Expected: `PKG_OK`, then the harness tail showing `S1 OK`…`S4 OK` and `DONE-INTEGRITY QUALIFICATION: OK`, then `QUAL_OK`.
 
 - [ ] **Step 6: Commit**
 
@@ -663,52 +671,75 @@ EOF
 - Consumes: everything built in Tasks 1–5.
 - Produces: raw command output for the PR body; nothing committed unless a stray `./vibe` needs removing.
 
+Run every step below as a fail-closed one-liner: it prints an `... OK` marker on success and
+`exit 1`s on any deviation (never relies on eyeballing piped output). Paste the full
+transcript into the PR.
+
 - [ ] **Step 1: Three-module build**
 
-Run: `go build ./plugins/... ./cli/... && (cd kernel && go build ./...) && echo BUILD_OK`
+```bash
+go build ./plugins/... ./cli/... && ( cd kernel && go build ./... ) && echo BUILD_OK
+```
 Expected: `BUILD_OK`, exit 0.
 
 - [ ] **Step 2: Go tests**
 
-Run: `go test ./plugins/... ./plugins/_template ./cli/... && (cd kernel && go test ./...)`
-Expected: every package `ok` (or `no test files`), exit 0. Confirm `TestRunPipelineGateFailOnStaleDiff` is in the `plugins/engineering-workflow` output.
+```bash
+go test ./plugins/... ./plugins/_template ./cli/... && ( cd kernel && go test ./... ) && echo GO_TESTS_OK
+out="$(go test ./plugins/engineering-workflow/ -run TestRunPipelineGateFailOnStaleDiff -v)"
+case "$out" in *"--- PASS: TestRunPipelineGateFailOnStaleDiff"*) echo S4_TEST_PRESENT ;; *) printf '%s\n' "$out"; echo "S4 test not passing"; exit 1 ;; esac
+```
+Expected: `GO_TESTS_OK`, then `S4_TEST_PRESENT`.
 
 - [ ] **Step 3: Kernel regression untouched**
 
-Run: `cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py 2>&1 | tail -2; cd ..`
-Expected: `M0.5 ADVERSARIAL QUALIFICATION: PASSED`.
+```bash
+( cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py ) ; rc=$?
+[ "$rc" -eq 0 ] && echo M05_OK || { echo "M05 FAILED rc=$rc"; exit 1; }
+```
+Expected: the script's own `M0.5 ADVERSARIAL QUALIFICATION: PASSED` line, then `M05_OK`.
 
 - [ ] **Step 4: Architecture checks — unchanged, still static**
 
-Run: `bash scripts/check-arch.sh; echo "arch exit=$?"`
-Expected: `CONTRACT CHECK: PASSED (31 contracts, ...)`, `COMPOSITION FITNESS: PASSED (10 manifests)`, `ARCHITECTURE FITNESS: PASSED`, `ARCH CHECKS OK`, `arch exit=0`. (If counts differ, trust the command and note it; M1.7 adds no contracts or manifests.)
-Run: `git diff --stat "$BASE" HEAD -- scripts/check-arch.sh` → empty.
+```bash
+out="$(bash scripts/check-arch.sh)" ; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -eq 0 ] || { echo "check-arch exit $rc"; exit 1; }
+case "$out" in *"CONTRACT CHECK: PASSED"*"COMPOSITION FITNESS: PASSED"*"ARCH CHECKS OK"*) echo ARCH_OK ;; *) echo "check-arch output unexpected"; exit 1 ;; esac
+[ -z "$(git diff --name-only "$BASE" HEAD -- scripts/check-arch.sh)" ] && echo CHECK_ARCH_UNTOUCHED || { echo "check-arch.sh was modified"; exit 1; }
+```
+Expected: the four `check-arch` lines, then `ARCH_OK`, then `CHECK_ARCH_UNTOUCHED`. (If the printed contract/manifest counts differ from 31/10, trust the command and note it — M1.7 adds none.)
 
 - [ ] **Step 5: DONE-integrity qualification — run it 3×**
 
-Run:
 ```bash
 for i in 1 2 3; do
-  bash scripts/qualify-done-integrity.sh >"/tmp/m17-qual-$i.log" 2>&1 || { echo "run $i FAILED"; cat "/tmp/m17-qual-$i.log"; exit 1; }
-  echo "run $i: $(tail -1 "/tmp/m17-qual-$i.log")"
+  bash scripts/qualify-done-integrity.sh >"/tmp/m17-qual-$i.log" 2>&1 ; rc=$?
+  [ "$rc" -eq 0 ] || { echo "qual run $i FAILED rc=$rc"; cat "/tmp/m17-qual-$i.log"; exit 1; }
+  last="$(tail -1 "/tmp/m17-qual-$i.log")"
+  [ "$last" = "DONE-INTEGRITY QUALIFICATION: OK" ] || { echo "qual run $i: bad last line '$last'"; cat "/tmp/m17-qual-$i.log"; exit 1; }
+  echo "qual run $i OK"
 done
-grep -hE '^S[1-4] OK' /tmp/m17-qual-1.log
-pgrep -f 'vibe-kernel|plugins/manifests' | wc -l
+n="$(grep -hE '^S[1-4] OK' /tmp/m17-qual-1.log | wc -l | tr -d ' ')"
+[ "$n" = 4 ] && echo "S1-S4 all OK" || { echo "expected 4 S-markers, got $n"; exit 1; }
+orph="$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')"
+[ "$orph" = 0 ] && echo NO_ORPHANS || { echo "orphan procs: $orph"; exit 1; }
 ```
-Expected: three `run N: DONE-INTEGRITY QUALIFICATION: OK`; four `S1..S4 OK` lines; orphan count `0`.
+Expected: `qual run 1 OK` … `qual run 3 OK`, `S1-S4 all OK`, `NO_ORPHANS`.
 
 - [ ] **Step 6: Smoke still green — run it 5×**
 
-Run:
 ```bash
 for i in 1 2 3 4 5; do
-  bash scripts/smoke.sh >"/tmp/m17-smoke5-$i.log" 2>&1 || { echo "run $i FAILED"; tail -30 "/tmp/m17-smoke5-$i.log"; exit 1; }
-  echo "run $i: $(tail -1 "/tmp/m17-smoke5-$i.log")"
+  bash scripts/smoke.sh >"/tmp/m17-smoke5-$i.log" 2>&1 ; rc=$?
+  [ "$rc" -eq 0 ] || { echo "smoke run $i FAILED rc=$rc"; tail -30 "/tmp/m17-smoke5-$i.log"; exit 1; }
+  grep -qx 'M1 SMOKE: PASSED' "/tmp/m17-smoke5-$i.log" || { echo "smoke run $i: no PASSED line"; exit 1; }
+  grep -q 'M1.6 WORKFLOW SMOKE: OK' "/tmp/m17-smoke5-$i.log" || { echo "smoke run $i: no workflow-smoke line"; exit 1; }
+  ! grep -q 'FAIL' "/tmp/m17-smoke5-$i.log" || { echo "smoke run $i: contains FAIL"; grep 'FAIL' "/tmp/m17-smoke5-$i.log"; exit 1; }
+  echo "smoke run $i OK"
 done
-grep -c 'M1.6 WORKFLOW SMOKE: OK' /tmp/m17-smoke5-*.log
-grep -c 'FAIL' /tmp/m17-smoke5-*.log
 ```
-Expected: five `run N: M1 SMOKE: PASSED`; each `WORKFLOW SMOKE` count `1`; each `FAIL` count `0`.
+Expected: `smoke run 1 OK` … `smoke run 5 OK`.
 
 - [ ] **Step 7: The full 致残对照 sweep — each mutation red, then reverted**
 
@@ -771,7 +802,8 @@ Branch `chatgpt/m1-7-done-integrity-qualification` → `main`, title **M1.7 — 
 | §8 observation (empty diff → DONE) not fixed | out of scope by construction; noted in spec, no task |
 | §9 files: 2 new scripts + smoke.sh + 1 test; kernel/config/contracts/manifests/check-arch untouched | Task 1, Task 5, File Structure |
 | §10 dispatch (clean tarball, BASE capture, degrade clauses, stop criteria, reviewer re-runs) | dispatch prompt (separate artifact); BASE in Base section; Task 6 Step 9 |
-| Codex review: S4 real coverage; review.query assertion; unified fail diagnostics; pipe exit-code + `grep|head`; G1 scope; drift | Task 5; Task 4 Step 1; Task 2 Step 1; run steps use `; echo exit=$?` + `grep -m1 -o`; Task 6 Step 8 `-- kernel`; S1 red text fixed, plan-not-in-diff noted |
+| Codex review R1: S4 real coverage; review.query assertion; unified fail diagnostics; pipe exit-code + `grep|head`; G1 scope; drift | Task 5; Task 4 Step 1; Task 2 Step 1; `grep -m1 -o`; Task 6 Step 8 `-- kernel`; S1 red text fixed, plan-not-in-diff noted |
+| Codex review R2: spec S4 wording unified; every Task 6 step fail-closed (`rc=$?` capture, marker greps, `exit 1` on deviation); "quote paths with variables"; single `-timeout` wording | spec §3 Out + §2 aligned to §4; Task 6 Steps 1–8 rewritten; Global Constraints; Task 4 Step 2 |
 
 No gaps.
 
