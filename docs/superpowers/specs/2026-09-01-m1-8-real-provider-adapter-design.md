@@ -14,6 +14,7 @@ The real end-to-end path (a real `codex` making a real change) is verified **onl
 
 ## 2. Design invariants (must hold at merge)
 
+0. **Toolchain: Go 1.19.** `plugins/go.mod` / `cli/go.mod` say `go 1.19`; the dev machine is go1.19.1. No Go 1.20+ API (`exec.Cmd.Cancel`, `exec.Cmd.WaitDelay`, `errors.Join`, `context.WithoutCancel`, …). No implicit toolchain bump — if a task seems to need one, stop and report.
 1. **Provider-neutral protocol.** `agent.run@1` / `workflow.engineering.run@1` gain nothing provider-specific. No `CodexThread` / `ClaudeConversation` vocabulary anywhere in contracts or handlers.
 2. **`provider` is a selection hint only.** It names which registered provider to use. It never carries an executable path, argv, environment, or credentials. Those are server-internal.
 3. **Empty `provider` resolves to `mock`. Unknown `provider` returns `INVALID` *before* `RecordStarted`** (no orphan RUNNING record).
@@ -47,35 +48,48 @@ type Provider interface {
 
 `RunSpec` gains nothing required by `RealProvider` (it already has `Prompt`, `WorkspacePath`). The `Mock*` fields stay; `RealProvider` ignores them. `RunResult.NativeID` is **unused by `RealProvider`** (returns `""`); the handler synthesises `harness_native_id`.
 
-### 4.2 `RealProvider` (`plugins/agent-harness/real_provider.go`)
+### 4.2 `RealProvider` (`plugins/agent-harness/real_provider.go` + platform files)
+
+**Toolchain: Go 1.19.** `plugins/go.mod` and `cli/go.mod` declare `go 1.19`; the dev machine has go1.19.1. **No Go 1.20+ API** — in particular `exec.Cmd.Cancel` and `exec.Cmd.WaitDelay` do not exist. Use `exec.Command` + `Start` + a manual wait/kill loop.
 
 ```go
 type RealProvider struct {
-	name    string                    // "codex"
-	bin     string                    // absolute path from exec.LookPath
-	argv    func(spec RunSpec) []string
-	env     []string                  // pre-computed allowlisted environment
-	timeout time.Duration             // 0 = no adapter-imposed deadline (caller's ctx still applies)
+	name    string                     // "codex"
+	bin     string                     // absolute path from exec.LookPath
+	argv    func(spec RunSpec) []string // args AFTER the binary
+	env     []string                   // pre-computed allowlisted env; NEVER nil (nil => inherit full parent env)
+	timeout time.Duration              // 0 = no adapter-imposed deadline (caller's ctx still applies)
 }
 ```
+
+Process spawn + group kill live in platform files so a non-unix build still compiles:
+- `real_provider_exec_unix.go` (`//go:build unix`): `startProcess(cmd)` sets `cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}` then `cmd.Start()`; `killProcessGroup(cmd)` = `syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)`.
+- `real_provider_exec_other.go` (`//go:build !unix`): `startProcess` returns an error `"real provider unsupported on this platform"`; `killProcessGroup` = `cmd.Process.Kill()`. (`discoverProviders` therefore registers no real providers on non-unix.)
 
 `Run(ctx, spec, out)`:
 
 1. `defer close(out)`.
-2. Build `args := p.argv(spec)`. For codex (see §5): `codex exec --cd <ws> -s workspace-write --approve-for-me --skip-git-repo-check --json --color never -- <prompt>`.
-3. If `p.timeout > 0`: `ctx, cancel = context.WithTimeout(ctx, p.timeout); defer cancel()`.
-4. `cmd := exec.CommandContext(ctx, p.bin, args...)`; `cmd.Dir = spec.WorkspacePath`; `cmd.Env = p.env`; `cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`.
-5. `cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }` (kill the **process group**, not just the direct child); `cmd.WaitDelay = 3 * time.Second`.
-6. Wire `cmd.StdoutPipe()` / `cmd.StderrPipe()`. If `cmd.Start()` fails → return `RunResult{Status: StatusFailed, ProviderMeta: meta(nil)}` where `exit_code` is JSON `null`.
-7. Two reader goroutines (one per pipe), each using `bufio.Reader.ReadString('\n')` with an accumulating cap of **1 MiB per line** — on overflow emit a truncated frame tagged `"...[truncated]"` and resume at the next newline. Each line → `out <- Frame{Kind: "stdout"|"stderr", Text: line, Index: nextIndex()}` where `nextIndex()` is a single mutex-guarded counter shared by both goroutines. **Only `Frame.Index` monotonicity is guaranteed; the true stdout/stderr interleaving is not preserved.**
-8. `wg.Wait()` for both readers, then `err := cmd.Wait()`.
-9. Status (checked in this order):
+2. `args := p.argv(spec)` (§5 for codex).
+3. If `p.timeout > 0`, wrap: `ctx2, cancel := context.WithTimeout(ctx, p.timeout); defer cancel()` and use `ctx2` below (don't shadow with `:=` inside an `if`).
+4. `cmd := exec.Command(p.bin, args...)`; `cmd.Dir = spec.WorkspacePath`; `cmd.Env = p.env`.
+5. `stdout, _ := cmd.StdoutPipe()`; `stderr, _ := cmd.StderrPipe()`. `if err := startProcess(cmd); err != nil` → `RunResult{Status: StatusFailed, ProviderMeta: meta(p, args, nil)}` (`exit_code` JSON `null`).
+6. Two reader goroutines (one per pipe). Each reads with `bufio.Reader.ReadString('\n')`:
+   - Trim a trailing `\n` and one optional preceding `\r` from the line before use.
+   - Accumulate up to **1 MiB**; on a longer line, emit one frame whose `Text` is the first 1 MiB followed by `"…[truncated]"`, then discard bytes until the next `\n` and continue.
+   - On `io.EOF` with non-empty residual (no trailing newline) → emit that residual as a final frame.
+   - On a non-EOF read error → emit one `stderr` frame `"[read error: <err>]"` and stop that reader (do not fail the run here; the exit code decides).
+   - Each line → `out <- Frame{Kind: "stdout"|"stderr", Text: <line>, Index: nextIndex()}`; `nextIndex()` is one mutex-guarded counter shared by both goroutines. **Only `Frame.Index` monotonicity is guaranteed — not the true stdout/stderr interleaving.**
+7. `waitErr := make(chan error, 1); go func(){ readersWG.Wait(); waitErr <- cmd.Wait() }()`.
+8. Select:
+   - `case err := <-waitErr:` → map (step 9).
+   - `case <-ctx.Done():` → `killProcessGroup(cmd)`; `<-waitErr` (reap); status from `ctx.Err()`.
+9. Status, in this order (ctx wins over exit code):
    - `ctx.Err() == context.DeadlineExceeded` → `StatusTimeout`
    - `ctx.Err() == context.Canceled` → `StatusCancelled`
-   - `err == nil` → `StatusCompleted`
-   - `err` is `*exec.ExitError` → `StatusFailed`, `exit_code = ExitCode()`
-   - other `err` → `StatusFailed`, `exit_code = null`
-10. `ProviderMeta` = `{"provider": p.name, "argv": args, "exit_code": <int|null>}`.
+   - `err == nil` → `StatusCompleted` (`exit_code` 0)
+   - `err` is `*exec.ExitError` → `StatusFailed`, `exit_code = ee.ExitCode()`
+   - any other `err` → `StatusFailed`, `exit_code = null`
+10. `ProviderMeta` = `{"provider": p.name, "bin": p.bin, "args": args, "exit_code": <int|null>}` (the binary is `bin`, not `args[0]`).
 
 ### 4.3 Runtime discovery (`plugins/agent-harness/discovery.go`)
 
@@ -84,18 +98,24 @@ func discoverProviders(candidates []string, envAllowlist []string, logw io.Write
 ```
 
 - Always seeds `{"mock": MockProvider{}}`.
-- `candidates` default `["codex"]`, overridden by env `VIBE_AGENT_PROVIDERS` (comma-separated executable names).
-- For each candidate: `exec.LookPath(name)`; if found, run `<abs> --version` with a **2 s** timeout and the allowlisted env. Exit 0 → register `RealProvider{name, bin: abs, argv: codexArgv, env: allowlistedEnv(envAllowlist), timeout: 0}`. Non-zero / timeout / not-on-PATH → **skip, do not register, do not fail plugin startup**.
-- **All discovery logging goes to `logw` = os.Stderr.** Never stdout (that is the `vibe-plugin/1` protocol channel). One line per candidate: `agent-harness: provider "codex" -> /usr/local/bin/codex (registered)` or `... (probe failed: <reason>, skipped)`.
+- **`argvTemplates`** is a package map `map[string]func(RunSpec) []string` populated only with `"codex": codexArgv`. Discovery registers a candidate **only if it has a template** — an arbitrary executable name cannot be turned into a `RealProvider`.
+- `candidates` default `["codex"]`, overridden by env `VIBE_AGENT_PROVIDERS` (comma-separated names).
+- For each candidate `name`:
+  - `name == "mock"` → skip with a log line (`mock` is reserved; discovery never overwrites the seeded mock).
+  - `argvTemplates[name]` absent → skip, log `no argv template for "<name>"`.
+  - `exec.LookPath(name)` fails → skip, log `not on PATH`.
+  - else run `<abs> --version` with a **2 s** timeout (`exec.Command` + `Start` + a timer that `killProcessGroup`s) and the allowlisted env. Exit 0 → `register RealProvider{name, bin: abs, argv: argvTemplates[name], env: allowlistedEnv(envAllowlist), timeout: 0}`. Non-zero / timeout / start error → skip, log the reason.
+  - **Never fails plugin startup** — a failed probe is a skipped provider, nothing more.
+- **All discovery logging → `logw` (wired to `os.Stderr`).** Never stdout — that is the `vibe-plugin/1` protocol channel. One line per candidate.
 
-**Env allowlist.** `allowlistedEnv(names)` copies only the named vars from `os.Environ()`. Default list (also the `--version` probe env):
+**Env allowlist.** `allowlistedEnv(names)` returns a **non-nil** `[]string` containing only `NAME=value` for `NAME` in `names` present in `os.Environ()`, minus a hard, **non-overridable denylist**: any name matching `FAKE_AGENT_*` or starting `VIBE_` is dropped even if listed. Default `names`:
 
 ```
 PATH HOME USER LOGNAME SHELL LANG LC_ALL LC_CTYPE TERM TMPDIR TZ
 SSL_CERT_FILE SSL_CERT_DIR CODEX_HOME OPENAI_API_KEY CODEX_API_KEY
 ```
 
-Overridable via `VIBE_AGENT_ENV_ALLOWLIST` (comma-separated, **replaces** the default). `FAKE_AGENT_*` and other test variables are **never** on any allowlist — the fake CLI takes everything as argv (§7).
+`VIBE_AGENT_ENV_ALLOWLIST` (comma-separated) **replaces** the default `names` list but cannot defeat the denylist. `RealProvider.env` is always this non-nil slice — the child never inherits the full parent environment.
 
 ### 4.4 Handler changes (`plugins/agent-harness/handlers.go`, `main.go`)
 
@@ -106,7 +126,7 @@ Overridable via `VIBE_AGENT_ENV_ALLOWLIST` (comma-separated, **replaces** the de
   3. `prov, ok := base.Providers[name]; if !ok { return INVALID "unknown provider \"<name>\"" }` — **before** any store write. (Deletes the old `"only mock provider is available in M1.3"` branch.)
   4. `runID := protocol.NewID("run")`; `ar.HarnessNativeID = name + "-" + runID`; `ar.Provider = name`; `RecordStarted(ar)`.
   5. `runCtx, runCancel := context.WithCancel(rc.Context())` — same lifetime as today's `go runOnce(rc.Context(), …)` (M1.3 already settled "client disconnect ≠ business cancel" under this context, and it passed review); `runCancel` adds the **explicit** cancel path. `done := make(chan struct{})`.
-  6. `base.Runs.register(runID, runCancel, done)`; `go func() { runOnce(runCtx, d, ar, spec, out); base.Runs.done(runID); close(done) }()`.
+  6. `base.Runs.register(runID, runCancel, done)`; `go func() { runOnce(runCtx, prov, d, ar, spec, out); base.Runs.done(runID); close(done) }()` — **`prov` (the looked-up provider) is passed in**; `runOnce`'s signature grows a `prov Provider` param and it calls `runProvider(ctx, prov, …)` instead of `d.Prov`. `runDeps.Prov` is removed.
   7. return `{agent_run, stream_id}`.
 - `main.go`: `Providers: discoverProviders(candidatesFromEnv(), allowlistFromEnv(), os.Stderr)`, `DefaultProvider: "mock"`, `Runs: newRunRegistry()`.
 
@@ -118,20 +138,31 @@ type runRegistry struct {
 	cancel map[string]context.CancelFunc
 	done   map[string]chan struct{}
 }
+func newRunRegistry() *runRegistry
 func (r *runRegistry) register(id string, c context.CancelFunc, done chan struct{})
-func (r *runRegistry) stop(id string) (done <-chan struct{}, ok bool)   // calls cancel, returns done chan
-func (r *runRegistry) done(id string)                                    // unregister
+func (r *runRegistry) stop(id string) (done <-chan struct{}, live bool) // calls cancel() (idempotent), returns the done chan
+func (r *runRegistry) done(id string)                                   // called by the run goroutine when finished; unregisters
 ```
 
-`cancelHandler`:
+**`cancelHandler(s *Store, runs *runRegistry)`** — a plain `pluginhost.Handler` (no `rc` needed):
 
-1. decode `agent_run_id`.
-2. `ar, ok := store.GetByID(id)`; not found → `NOT_FOUND`; already terminal → `CONFLICT` (unchanged).
-3. `done, live := runs.stop(id)`:
-   - **live** (in registry): the provider's `runCtx` is now cancelled. Wait on `done` (bounded, e.g. `p.timeout`+5 s or a fixed 30 s) → `runOnce` runs the provider to its `CANCELLED` return, `blob.put`s the partial transcript, and `Persist`s via the existing `agent.run.completed` op with `Status = "CANCELLED"` + `RawSessionRef`. Then return the final `AgentRun`.
-   - **not live** (registry lost it — e.g. after a plugin restart, run still `RUNNING` in the store): append `agent.run.cancelled` (the existing op) to mark it terminal with no transcript, return the `AgentRun`.
+1. decode `agent_run_id` (empty → `INVALID`).
+2. `ar, ok := s.GetByID(id)` → not found → `NOT_FOUND`.
+3. `if ar.Status != StatusRunning` → `CONFLICT "already <status>"` (idempotent guard; also covers a run that finished naturally moments earlier).
+4. `done, live := runs.stop(id)` — `stop` calls the registered `CancelFunc` (calling an already-called one is a no-op) and returns the run's `done` channel.
+5. **live**: the run goroutine will observe `runCtx` cancelled, the provider returns `StatusCancelled`, `runOnce` `blob.put`s the partial transcript and `Persist`s it via the existing `agent.run.completed` op (`RecordCompleted` requires `RUNNING` — still true; sole writer). Then:
+   ```
+   select {
+   case <-done:                       // run goroutine finished + persisted
+       final, _ := s.GetByID(id); return {agent_run: final}
+   case <-time.After(30 * time.Second):
+       return &protocol.Error{Code: "IO", Retryable: true, Message: "cancel: provider did not stop within 30s"}
+   }
+   ```
+   **Race — natural completion vs. cancel.** If the provider returns `COMPLETED`/`FAILED` before it observes the cancel, `runOnce` persists that terminal state (still the sole writer). `cancelHandler` then reads `COMPLETED`/`FAILED` back and returns it — correct: the run finished before cancel took effect. `cancelHandler` never writes in the live path.
+6. **not live** (`stop` reports the id absent — only reachable after a plugin restart lost the registry while the store still shows `RUNNING`): `s.RecordCancelled(id)` (the existing `agent.run.cancelled` op; requires `RUNNING` — true; sole writer here), return the `AgentRun`. **Known limitation (§11):** a child process left over from before the restart is not guaranteed dead — the process-group id was lost with the registry.
 
-**No Store schema change.** Both ops (`agent.run.completed`, `agent.run.cancelled`) already exist; `RecordCompleted` already accepts an arbitrary status string, and `runOnce` already persists `tr.Result.Status` (which the mock already returns as `CANCELLED` on ctx-done).
+**No Store schema change.** Both ops (`agent.run.completed`, `agent.run.cancelled`) already exist; `RecordCompleted` already accepts an arbitrary status string; `runOnce` already persists `tr.Result.Status` (the mock already returns `CANCELLED` on ctx-done). In every path exactly one writer touches the record while it is `RUNNING`.
 
 ### 4.6 Provider passthrough
 
@@ -174,36 +205,40 @@ Why codex over claude/gemini: all three are on the dev machine; codex `exec` has
 
 ## 6. Testing
 
-### 6.1 Deterministic (dispatched) — `fixtures/fake-agent-cli`
+### 6.1 Deterministic (dispatched)
 
-A committed **Go** `main` package at **`plugins/agent-harness/fakeagentcli/main.go`** (inside the existing `plugins` module — no `go.work` / `go.mod` change), built by `scripts/build.sh` to `.bin/fake-agent-cli` (`go build -o .bin/fake-agent-cli ./plugins/agent-harness/fakeagentcli`). It mimics a coding CLI **taking everything as argv** (so no test env ever touches a production allowlist):
+**Fixture `plugins/agent-harness/fakeagentcli/main.go`** — a committed Go `main` package (in the `plugins` module; no `go.work`/`go.mod` change), built by `scripts/build.sh` to `.bin/fake-agent-cli`. Everything is argv (no env), so no test variable ever touches a production allowlist:
 
 ```
-fake-agent-cli --version                                             # prints "fake-agent-cli 0.0.1", exit 0
-fake-agent-cli --cd <dir> --write <relfile> --line <text> --exit <n> --sleep <ms> -- <prompt...>
+fake-agent-cli --version                      # prints "fake-agent-cli 0.0.1\n", exit 0
+fake-agent-cli --version-exit N               # for discovery tests: print a version line, exit N
+fake-agent-cli --cd DIR --write RELFILE --line TEXT --emit-bytes N --exit N --sleep MS -- PROMPT...
 ```
 
-Behaviour: `--version` short-circuits (for discovery probing). Otherwise: `chdir(--cd)`; print 3 `stdout` lines and one `stderr` line derived from the prompt; if `--write` set, append `--line` + "\n" to `<dir>/<relfile>`; `sleep(--sleep ms)` as an interruptible loop that exits promptly on SIGTERM/SIGKILL; `os.Exit(--exit)`.
+Behaviour of the run form: `chdir(--cd)`; print 3 short `stdout` lines + 1 `stderr` line derived from the prompt; if `--emit-bytes N` > 0, additionally print one `stdout` line of exactly N bytes (generated internally — never via argv); if `--write` set, append `--line` + `"\n"` to `<cd>/<relfile>`; sleep `--sleep` ms in an interruptible loop that exits fast on SIGTERM/SIGINT/SIGKILL; `os.Exit(--exit)`.
 
-`real_provider_test.go` builds a `RealProvider` pointed at `.bin/fake-agent-cli` with a fake `argv` template and asserts:
+**`real_provider_test.go`** — builds a `RealProvider` pointed at an absolute path to `.bin/fake-agent-cli` (resolved once via `filepath.Abs`) with a test `argv` template, and asserts:
 
 | case | knobs | expected |
 |---|---|---|
-| completed + workspace change | `--write Calc.java --line "// hardened" --exit 0` | frames streamed in `Index` order; `Status == COMPLETED`; file contains the line; `exit_code == 0` |
+| completed + workspace change | `--write Calc.java --line "// hardened" --exit 0` | frames streamed, `Index` monotonic; `Status == COMPLETED`; file contains the line; `ProviderMeta.exit_code == 0` |
 | non-zero exit → FAILED | `--exit 7` | `Status == FAILED`; `ProviderMeta.exit_code == 7` |
-| deadline → TIMEOUT | `RealProvider.timeout = 50ms`, `--sleep 5000` | `Status == TIMEOUT` within ~1 s |
-| context cancel → CANCELLED | cancel ctx after first frame, `--sleep 5000` | `Status == CANCELLED`; process gone |
-| `cmd.Start` failure → FAILED/null | `bin = "/nonexistent"` | `Status == FAILED`; `ProviderMeta.exit_code == null` |
-| oversized line | `--line <1.5 MiB>` | a truncated frame containing `[truncated]`, run still `COMPLETED` |
+| deadline → TIMEOUT | `RealProvider.timeout = 50ms`, `--sleep 5000` | `Status == TIMEOUT` within ~2 s |
+| context cancel → CANCELLED | cancel ctx after first frame, `--sleep 5000` | `Status == CANCELLED`; `os.FindProcess`+signal-0 shows the pid gone |
+| start failure → FAILED/null | `bin = "/nonexistent/xyz"` | `Status == FAILED`; `ProviderMeta.exit_code` is JSON `null` |
+| oversized line | `--emit-bytes 1572864` | one frame whose `Text` ends `…[truncated]` and is ≤ ~1 MiB; run still `COMPLETED` |
 
-`discovery_test.go`:
+**`discovery_test.go`** — writes throwaway wrapper scripts into `t.TempDir()` and prepends it to `PATH` (the fixture is for `real_provider_test`; discovery is tested with its own scripts):
 
-| case | expected |
-|---|---|
-| candidate resolves + `--version` exits 0 (use `.bin/fake-agent-cli --exit 0` as the "binary", `--version` handled) | registered; map has `mock` + that name |
-| candidate not on PATH | skipped; map has only `mock`; no error; a stderr log line |
-| candidate `--version` exits non-zero | skipped |
-| stdout is untouched | capture: `discoverProviders` writes nothing to a stdout spy |
+| case | setup | expected |
+|---|---|---|
+| candidate registers | `argvTemplates` temporarily has a test entry `"good"`; `good` on PATH is `#!/bin/sh` `echo good 1.0; exit 0` | map has `mock` + `good`; `good` is a `RealProvider` with `bin` = the resolved abs path |
+| `--version` non-zero | `bad` script exits 1 | skipped; map has only `mock`; one stderr log line |
+| not on PATH | candidate `ghost`, nothing on PATH | skipped; no error |
+| no argv template | candidate `codex`-absent-template name | skipped, log `no argv template` |
+| `mock` candidate | `VIBE_AGENT_PROVIDERS=mock` | skipped, log `reserved`; seeded `mock` intact |
+| stdout untouched | any of the above, `logw` and stdout captured separately | nothing written to stdout; log lines only on `logw` |
+| env denylist | `VIBE_AGENT_ENV_ALLOWLIST=FAKE_AGENT_X,PATH` with `FAKE_AGENT_X` set | `allowlistedEnv` result contains `PATH=…` but no `FAKE_AGENT_X` |
 
 `handlers_test.go` (public path):
 
@@ -232,10 +267,13 @@ Print `REAL PROVIDER (codex) VERIFY: OK`.
 
 | mutation | red |
 |---|---|
-| in `RealProvider.Run`, drop the `*exec.ExitError` branch (always `COMPLETED`) | `real_provider_test.go` "non-zero exit → FAILED" |
-| drop the `ctx.Err()` checks (map on exit code only) | "deadline → TIMEOUT" and "context cancel → CANCELLED" |
-| in `cancelHandler`, skip the wait-for-`done` (return immediately after `stop`) | `handlers_test.go` "live cancel" (final record still `RUNNING` or transcript empty) |
+| in `RealProvider.Run` step 9, drop the `*exec.ExitError` branch (always `COMPLETED`) | `real_provider_test.go` "non-zero exit → FAILED" |
+| drop the `ctx.Err()` checks in step 9 (map on exit `err` only) | "deadline → TIMEOUT" and "context cancel → CANCELLED" |
+| in `real_provider_exec_unix.go`, make `killProcessGroup` a no-op | "context cancel → CANCELLED" (pid still alive) / "deadline → TIMEOUT" hangs |
+| in `cancelHandler`, drop the `<-done` wait (return right after `stop`) | `handlers_test.go` "live cancel" (final record still `RUNNING`, or `RawSessionRef` empty) |
 | in `agentRunHandler`, move the unknown-provider check after `RecordStarted` | `handlers_test.go` "bogus" (an orphan `RUNNING` record appears) |
+| in `discoverProviders`, let a `mock` candidate through | `discovery_test.go` "mock candidate" (seeded mock overwritten) |
+| in `allowlistedEnv`, drop the denylist | `discovery_test.go` "env denylist" (`FAKE_AGENT_X` leaks) |
 | revert `realCaps` to the literal `"provider": "mock"` | `pipeline_test.go` provider-forwarding assertion |
 
 ## 7. Acceptance
@@ -259,6 +297,7 @@ Print `REAL PROVIDER (codex) VERIFY: OK`.
 
 New:
 - `plugins/agent-harness/real_provider.go` + `real_provider_test.go`
+- `plugins/agent-harness/real_provider_exec_unix.go` (`//go:build unix`) + `real_provider_exec_other.go` (`//go:build !unix`)
 - `plugins/agent-harness/discovery.go` + `discovery_test.go`
 - `plugins/agent-harness/runreg.go` + `runreg_test.go`
 - `plugins/agent-harness/fakeagentcli/main.go` (test fixture, `package main`, stdlib only)
@@ -294,3 +333,10 @@ Same protocol as M1.5–M1.7:
 - `BASE=$(git rev-parse HEAD)` before Task 1; no hardcoded SHA;
 - **the dispatched agent does NOT run codex** (no network) — it builds and tests against `.bin/fake-agent-cli` only; the prompt says so explicitly and tells it the real check is the reviewer's;
 - reviewer fetches, re-runs §7 dispatched acceptance + the 致残 sweep independently, runs §6.2 locally, merges, tags `m1.8-real-provider-adapter`, bumps §13.
+
+## 11. Known limitations (M1.8, documented not fixed)
+
+- **Cancel after a plugin restart.** If `org.vibe.agent.harness` restarts while a real run is in flight, the run registry (and the child's process-group id) is lost. A later `agent.run.cancel` marks the record `CANCELLED` (via `agent.run.cancelled`) but cannot guarantee the orphaned child/process-group is dead. Full restart+recovery of in-flight real runs is M1.9.
+- **Transcript fidelity.** `raw_session_ref` is the adapter's line-assembled transcript with a single monotonic `Index`, not a byte-exact or truly-interleaved copy of the child's stdout/stderr.
+- **`harness_native_id`** is the synthetic `codex-<run_id>`; codex's own session/thread id is not extracted (no `--json` parsing).
+- **Non-unix.** `RealProvider` process-group semantics are POSIX-only; on non-unix builds `discoverProviders` registers no real providers.
