@@ -46,4 +46,44 @@ for target in IN_PROGRESS IN_REVIEW DONE FAILED; do
 done
 echo "S1 OK: external direct work.transition denied for every target state"
 
+# ---------- S2: failed evidence cannot pass the DONE gate ----------
+# Run the workflow with a failing build or test, approve the review anyway
+# (a colluding human), assert the gate still refuses DONE.
+s2_run() {  # $1=build cmd  $2=test cmd  $3=expected reason substring
+  local created task show j pid rev decide wf_out ts
+  created="$($VD task create -title "s2" -goal "harden add" -repo "$SRC" -ac AC1="build+test pass")"
+  task="$(printf '%s\n' "$created" | sed -n 's/^task \([^ ]*\).*/\1/p')"
+  [ -n "$task" ] || fail "S2 FAIL: task create: $created"
+  ( $VQ workflow run "$task" -prompt "harden" -build "$1" -test "$2" \
+      -review-poll-ms 200 -mock-write-file Calc.java -mock-write-content '// s2
+' -timeout 3m > "$DATA/s2.out" 2>&1 ) &
+  pid=$!
+  rev=""
+  for _ in $(seq 1 600); do
+    kill -0 "$pid" 2>/dev/null || break
+    show="$($VQ workflow show "$task" 2>/dev/null || true)"
+    case "$show" in *"stage WAITING_REVIEW"*)
+      j="$($VQ workflow show "$task" -json 2>/dev/null || true)"
+      rev="$(printf '%s\n' "$j" | grep -m1 -o '"review_id":"[^"]*"' | sed -n '1{s/.*:"//;s/"//;p;}')"
+      [ -n "$rev" ] && break ;;
+    esac
+    sleep 0.1
+  done
+  [ -n "$rev" ] || { cat "$DATA/s2.out"; fail "S2 FAIL: never reached WAITING_REVIEW ($1 / $2)"; }
+  decide="$($VQ review decide "$rev" -approved -reviewer mallory -acceptance AC1=pass 2>&1 || true)"
+  case "$decide" in *"status APPROVED"*) : ;; *) fail "S2 FAIL: review decide: $decide" ;; esac
+  if wait "$pid"; then cat "$DATA/s2.out"; fail "S2 FAIL: workflow run exited 0 with $1 / $2"; fi
+  wf_out="$(cat "$DATA/s2.out")"
+  case "$wf_out" in *"outcome GATE_FAILED"*) : ;; *) fail "S2 FAIL: outcome not GATE_FAILED ($1 / $2): $wf_out" ;; esac
+  case "$wf_out" in *"$3"*) : ;; *) fail "S2 FAIL: reason lacks '$3': $wf_out" ;; esac
+  ts="$($VD task show "$task" 2>&1 || true)"
+  case "$ts" in *"status DONE"*) fail "S2 FAIL: task went DONE despite $1 / $2: $ts" ;; esac
+  restart_kernel
+  ts="$($VD task show "$task" 2>&1 || true)"
+  case "$ts" in *"status DONE"*) fail "S2 FAIL: task DONE after restart: $ts" ;; esac
+}
+s2_run "sh -c true"  "sh -c false" "reason test:"
+s2_run "sh -c false" "sh -c true"  "reason build:"
+echo "S2 OK: failing test and failing build both blocked at the gate"
+
 echo "DONE-INTEGRITY QUALIFICATION: OK"
