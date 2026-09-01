@@ -137,6 +137,22 @@ func TestRunPipelineGateFailOnTest(t *testing.T) {
 		t.Fatal("session not sealed")
 	}
 }
+func TestRunPipelineGateFailOnStaleDiff(t *testing.T) {
+	// CollectDiff (fake) returns "art-1"; the only review is APPROVED but bound
+	// to a different diff artifact. runPipeline must refuse DONE.
+	f := &fakePipeline{reviews: []ReviewState{approved("art-STALE", true)}}
+	r := runPipeline(context.Background(), f.caps(), baseRun())
+	if r.Outcome != "GATE_FAILED" || !strings.Contains(r.Reason, "diff") {
+		t.Fatalf("outcome=%s reason=%s", r.Outcome, r.Reason)
+	}
+	if f.has("transition:DONE") {
+		t.Fatal("DONE transition happened despite stale-diff review")
+	}
+	if !f.has("seal") || !f.has("release") {
+		t.Fatal("cleanup missing")
+	}
+}
+
 func TestRunPipelineAgentFailed(t *testing.T) {
 	f := &fakePipeline{agentStatus: "FAILED"}
 	r := runPipeline(context.Background(), f.caps(), baseRun())
