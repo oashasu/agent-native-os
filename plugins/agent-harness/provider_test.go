@@ -21,16 +21,17 @@ func TestMockProviderEmitsFramesAndTouchesWorkspace(t *testing.T) {
 	ws := t.TempDir()
 	p := MockProvider{}
 	out := make(chan Frame, 16)
-	var res RunResult
+	done := make(chan RunResult, 1)
 	go func() {
-		res = p.Run(context.Background(), RunSpec{WorkspacePath: ws, Prompt: "harden add", MockSteps: 4, MockDelayMS: 1, MockWriteFile: "src/Calc.java", MockWriteContent: "// x\n"}, out)
+		res := p.Run(context.Background(), RunSpec{WorkspacePath: ws, Prompt: "harden add", MockSteps: 4, MockDelayMS: 1, MockWriteFile: "src/Calc.java", MockWriteContent: "// x\n"}, out)
 		_, _ = json.Marshal(res)
+		done <- res
 	}()
 	fs := drain(out)
 	if len(fs) != 4 || fs[0].Kind != "stdout" || fs[3].Index != 4 {
 		t.Fatalf("frames: %+v", fs)
 	}
-	time.Sleep(20 * time.Millisecond)
+	res := <-done
 	if res.Status != StatusCompleted {
 		t.Fatalf("result: %+v", res)
 	}
