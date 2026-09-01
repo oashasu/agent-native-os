@@ -86,4 +86,62 @@ s2_run "sh -c true"  "sh -c false" "reason test:"
 s2_run "sh -c false" "sh -c true"  "reason build:"
 echo "S2 OK: failing test and failing build both blocked at the gate"
 
+# ---------- S3: an injected APPROVED review does not move the Task ----------
+# local-cli holds review.request@1 + review.decide@1 directly, so it can
+# fabricate an APPROVED review for the WorkContext BEFORE the workflow runs.
+# The pipeline must ignore it: it polls only the review id IT created.
+created="$($VD task create -title "s3" -goal "harden add" -repo "$SRC" -ac AC1="build+test pass")"
+S3_TASK="$(printf '%s\n' "$created" | sed -n 's/^task \([^ ]*\).*/\1/p')"
+S3_WC="$(printf '%s\n' "$created" | sed -n 's/.*wc \([^ ]*\).*/\1/p')"
+{ [ -n "$S3_TASK" ] && [ -n "$S3_WC" ]; } || fail "S3 FAIL: task create: $created"
+
+fake_out="$($VQ review request "$S3_WC" -diff-artifact art-injected-not-real \
+             -evidence build:PASS -evidence test:PASS 2>&1 || true)"
+RFAKE="$(printf '%s\n' "$fake_out" | sed -n 's/^review \([^ ]*\).*/\1/p')"
+[ -n "$RFAKE" ] || fail "S3 FAIL: could not create injected review: $fake_out"
+fdec="$($VQ review decide "$RFAKE" -approved -reviewer mallory -acceptance AC1=pass 2>&1 || true)"
+case "$fdec" in *"status APPROVED"*) : ;; *) fail "S3 FAIL: could not approve injected review: $fdec" ;; esac
+
+# Real workflow; real review left undecided; short deadline so the poll loop times out.
+s3_out="$($VQ workflow run "$S3_TASK" -prompt "harden" -build "sh -c true" -test "sh -c true" \
+           -review-poll-ms 200 -mock-write-file Calc.java -mock-write-content '// s3
+' -timeout 20s 2>&1 || true)"
+case "$s3_out" in
+  *"outcome TIMEOUT"*)
+    RREAL="$(printf '%s\n' "$s3_out" | sed -n 's/.*  review \([^ ]*\)  session.*/\1/p')" ;;
+  *"INVOKE_ERROR: deadline exceeded waiting for org.vibe.workflow.engineering"*)
+    # The router and runPipeline share the same envelope deadline. On this
+    # sandbox the router wins that race, so recover the already-persisted real
+    # review id from workflow history and continue the same state assertions.
+    s3j="$($VQ workflow show "$S3_TASK" -json 2>/dev/null || true)"
+    RREAL="$(printf '%s\n' "$s3j" | grep -m1 -o '"review_id":"[^"]*"' | sed -n '1{s/.*:"//;s/"//;p;}')" ;;
+  *) fail "S3 FAIL: expected TIMEOUT/deadline, got: $s3_out" ;;
+esac
+{ [ -n "$RREAL" ] && [ "$RREAL" != "$RFAKE" ]; } || fail "S3 FAIL: workflow did not open its own review (real='$RREAL' fake='$RFAKE'): $s3_out"
+
+# Both reviews exist under the WC, and each id binds to its expected status.
+# review.query returns compact single-line JSON; count the top-level "id":" keys
+# (no other field ends in "id":" — agent_run_id / diff_artifact_id / work_context_id
+# are all preceded by a letter, not a quote). Then bind each id -> status with a
+# direct `review show` rather than parsing nested JSON.
+rq="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
+        -cap review.query -kind query -service default-review -authority reviews-main \
+        -payload "{\"work_context_id\":\"$S3_WC\"}" 2>&1 || true)"
+ids="$(printf '%s\n' "$rq" | grep -o '"id":"[^"]*"' || true)"
+n="$(printf '%s\n' "$ids" | grep -c '"id":"' || true)"
+[ "$n" = 2 ] || fail "S3 FAIL: review.query expected exactly 2 reviews, got $n: $rq"
+case "$ids" in *"\"id\":\"$RFAKE\""*) : ;; *) fail "S3 FAIL: review.query missing injected review $RFAKE: $rq" ;; esac
+case "$ids" in *"\"id\":\"$RREAL\""*) : ;; *) fail "S3 FAIL: review.query missing workflow review $RREAL: $rq" ;; esac
+fs="$($VQ review show "$RFAKE" 2>&1 || true)"
+case "$fs" in *"status APPROVED"*) : ;; *) fail "S3 FAIL: injected review $RFAKE is not APPROVED: $fs" ;; esac
+rs="$($VQ review show "$RREAL" 2>&1 || true)"
+case "$rs" in *"status PENDING"*) : ;; *) fail "S3 FAIL: workflow review $RREAL is not PENDING: $rs" ;; esac
+
+ts="$($VD task show "$S3_TASK" 2>&1 || true)"
+case "$ts" in *"status DONE"*) fail "S3 FAIL: task DONE despite undecided real review: $ts" ;; esac
+restart_kernel
+ts="$($VD task show "$S3_TASK" 2>&1 || true)"
+case "$ts" in *"status DONE"*) fail "S3 FAIL: task DONE after restart: $ts" ;; esac
+echo "S3 OK: injected APPROVED review is never consulted; undecided real review => TIMEOUT, not DONE"
+
 echo "DONE-INTEGRITY QUALIFICATION: OK"
