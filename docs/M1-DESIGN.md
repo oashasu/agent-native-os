@@ -555,7 +555,8 @@ M1.3  agent-adapter：只 mock provider，agent.run streaming 打通 + AgentRun 
 M1.4  artifact-service（collect_diff）+ tool-runner（结构化 argv + 指纹 + blob 输出） — done (PR #5)
 M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEventSelection/RecoveryCheckpoint） — done (PR #6)
 M1.6  engineering-workflow（无状态编排 + WAITING_REVIEW 轮询 + DONE gate） — done (PR #7)
-M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE
+M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE — done (PR #8)
+      S1–S3 live-kernel（local-cli）；S4 无 M1 live 路径（单趟 workflow 一个 diff 变量喂 review+gate）→ runPipeline→doneGate 集成缝测试 + gate 谓词。仅 4 文件：scripts/lib/kernel-harness.sh、scripts/qualify-done-integrity.sh、scripts/smoke.sh、plugins/engineering-workflow/pipeline_test.go
 M1.8  agent-adapter 接真实 provider #1（运行时发现 codex/claude）
 M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证
       + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED
