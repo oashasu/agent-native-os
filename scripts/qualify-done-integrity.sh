@@ -144,4 +144,13 @@ ts="$($VD task show "$S3_TASK" 2>&1 || true)"
 case "$ts" in *"status DONE"*) fail "S3 FAIL: task DONE after restart: $ts" ;; esac
 echo "S3 OK: injected APPROVED review is never consulted; undecided real review => TIMEOUT, not DONE"
 
+# ---------- S4: wrong-diff approval ----------
+# A live S4 (the workflow's OWN review carrying a stale diff) has no code path in
+# M1: runPipeline passes one diff artifact id to both review.request and the gate.
+# Proven instead at the runPipeline integration seam:
+#   plugins/engineering-workflow/pipeline_test.go::TestRunPipelineGateFailOnStaleDiff
+#   (APPROVED review, DiffArtifactID != collected diff => GATE_FAILED, no DONE)
+# plus the predicate unit test gate_test.go::TestDoneGateFailsOnEachCondition/'wrong diff'.
+echo "S4 SEAM OK: wrong-diff review rejected by the gate (pipeline_test.go + gate_test.go)"
+
 echo "DONE-INTEGRITY QUALIFICATION: OK"
