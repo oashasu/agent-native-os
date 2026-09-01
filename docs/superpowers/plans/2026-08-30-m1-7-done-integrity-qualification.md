@@ -498,20 +498,23 @@ case "$s3_out" in *"outcome TIMEOUT"*) : ;; *) fail "S3 FAIL: expected TIMEOUT, 
 RREAL="$(printf '%s\n' "$s3_out" | sed -n 's/.*  review \([^ ]*\)  session.*/\1/p')"
 { [ -n "$RREAL" ] && [ "$RREAL" != "$RFAKE" ]; } || fail "S3 FAIL: workflow did not open its own review (real='$RREAL' fake='$RFAKE'): $s3_out"
 
-# Both reviews exist under the WC: assert exactly two records and bind each id to
-# its expected status, rather than merely finding the two status strings somewhere
-# in the payload. The review handler emits compact JSON with one object separator.
+# Both reviews exist under the WC, and each id binds to its expected status.
+# review.query returns compact single-line JSON; count the top-level "id":" keys
+# (no other field ends in "id":" — agent_run_id / diff_artifact_id / work_context_id
+# are all preceded by a letter, not a quote). Then bind each id -> status with a
+# direct `review show` rather than parsing nested JSON.
 rq="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
         -cap review.query -kind query -service default-review -authority reviews-main \
         -payload "{\"work_context_id\":\"$S3_WC\"}" 2>&1 || true)"
-rows="$(printf '%s\n' "$rq" | sed 's/},{/}\\
-{/g')"
-n="$(printf '%s\n' "$rows" | grep -c '"id":"' || true)"
+ids="$(printf '%s\n' "$rq" | grep -o '"id":"[^"]*"' || true)"
+n="$(printf '%s\n' "$ids" | grep -c '"id":"' || true)"
 [ "$n" = 2 ] || fail "S3 FAIL: review.query expected exactly 2 reviews, got $n: $rq"
-fake_row="$(printf '%s\n' "$rows" | grep -F "\"id\":\"$RFAKE\"" || true)"
-real_row="$(printf '%s\n' "$rows" | grep -F "\"id\":\"$RREAL\"" || true)"
-case "$fake_row" in *"\"id\":\"$RFAKE\""*'"status":"APPROVED"'*) : ;; *) fail "S3 FAIL: review.query injected review is not APPROVED: $rq" ;; esac
-case "$real_row" in *"\"id\":\"$RREAL\""*'"status":"PENDING"'*) : ;; *) fail "S3 FAIL: review.query workflow review is not PENDING: $rq" ;; esac
+case "$ids" in *"\"id\":\"$RFAKE\""*) : ;; *) fail "S3 FAIL: review.query missing injected review $RFAKE: $rq" ;; esac
+case "$ids" in *"\"id\":\"$RREAL\""*) : ;; *) fail "S3 FAIL: review.query missing workflow review $RREAL: $rq" ;; esac
+fs="$($VQ review show "$RFAKE" 2>&1 || true)"
+case "$fs" in *"status APPROVED"*) : ;; *) fail "S3 FAIL: injected review $RFAKE is not APPROVED: $fs" ;; esac
+rs="$($VQ review show "$RREAL" 2>&1 || true)"
+case "$rs" in *"status PENDING"*) : ;; *) fail "S3 FAIL: workflow review $RREAL is not PENDING: $rs" ;; esac
 
 ts="$($VD task show "$S3_TASK" 2>&1 || true)"
 case "$ts" in *"status DONE"*) fail "S3 FAIL: task DONE despite undecided real review: $ts" ;; esac
