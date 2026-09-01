@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove — with a live kernel, driven as the external identity `local-cli` — that the four attacks defined in `docs/M1-DESIGN.md` §4.4 cannot get a Task to `DONE`, by adding a standalone qualification harness plus one pipeline-integration test. No new enforcement code.
+**Goal:** Establish evidence that the four attacks defined in `docs/M1-DESIGN.md` §4.4 are blocked: S1–S3 are exercised against a live kernel as the external identity `local-cli`; S4 is exercised at the real `runPipeline → doneGate` integration seam plus the existing gate predicate test. No claim is made that every conceivable bypass path is closed, and no new enforcement code is added.
 
 **Architecture:** One new library script `scripts/lib/kernel-harness.sh` (kernel lifecycle, lifted verbatim out of `scripts/smoke.sh`) and one new standalone script `scripts/qualify-done-integrity.sh` that sources it, boots its own kernel against the real `config/m1-*.json`, and runs scenarios S1–S3 as `local-cli`, restarting the kernel after each stateful one and re-asserting. S4's predicate is proven by a new `runPipeline` integration test with fake capability closures (a live S4 path does not exist in M1 — the single-pass workflow binds one diff artifact id to both the review request and the gate). `scripts/smoke.sh` is refactored to source the shared library (behaviour unchanged). The harness is added as its own milestone-acceptance step; `scripts/check-arch.sh` is **not** touched.
 
-**Tech Stack:** Bash (`set -euo pipefail`), the existing `.bin/vibe` / `.bin/vibe-kernel` / `.bin/vibe-raw` binaries, Go 1.x (`go test`) for the S4 integration test and the transient 致残对照 mutations. No new Go dependency, no Python.
+**Tech Stack:** Bash (`set -euo pipefail`), the existing `.bin/vibe` / `.bin/vibe-kernel` / `.bin/vibe-raw` binaries, Go 1.x (`go test`) for the S4 integration test and the transient 致残对照 mutations. No new Go dependency or Python code/dependency; Task 6 only invokes the existing kernel qualification script.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-m1-7-done-integrity-qualification-design.md` (and, through it, `docs/M1-DESIGN.md` §2 G4 / §4.2 / §4.3 / §4.4 / §10 / §13).
 
 ## Global Constraints
 
-- **Scope of the claim:** this milestone proves the **four attacks enumerated in §4.4** are blocked. It does not — and must not be described as — proving every conceivable bypass path is closed.
+- **Scope of the claim:** this milestone establishes evidence for the **four attacks enumerated in §4.4**: S1–S3 have live-kernel coverage, while S4 has `runPipeline → doneGate` seam coverage plus the gate predicate case. It does not — and must not be described as — proving every conceivable bypass path is closed.
 - **G1 Kernel Purity:** no task modifies `kernel/` (any path). Check: `git diff --name-only "$BASE" HEAD -- kernel` must be empty (`$BASE` captured below). If a step seems to need a kernel change, stop and report.
 - **No new external Go modules.**
 - **No policy loosening.** `config/m1-policy.json` ships unchanged. It is edited only *transiently* inside the 致残对照 sweep and restored (`git checkout`) in the same step.
@@ -20,7 +20,7 @@
 - **`scripts/check-arch.sh` is not modified.** It stays static and ~1 s.
 - **Do NOT touch `docs/M1-DESIGN.md`.** Not staged, not edited, not committed. §13 is the reviewer's post-merge step.
 - **Module paths:** kernel `github.com/example/agent-native-microkernel`; plugins `github.com/example/agent-native-os/plugins`; CLI `github.com/example/agent-native-os/cli`.
-- **Assertion discipline:** every check captures command output into a variable and matches with `case "$var" in *"..."*)`. Never `cmd | grep -q` and never `grep -o ... | head -1` — under `set -o pipefail` a downstream reader closing the pipe SIGPIPEs the producer and trips the pipeline (the flake M1.5 Task 8 and M1.6 hit). Use `grep -m1 -o` when you need the first match.
+- **Assertion discipline:** every acceptance-affecting command either captures its exit status and fails closed or is part of a fail-closed conditional; output assertions capture the output and match with `case "$var" in *"..."*)` where practical. Never `cmd | grep -q` and never `grep -o ... | head -1` — under `set -o pipefail` a downstream reader closing the pipe SIGPIPEs the producer and trips the pipeline (the flake M1.5 Task 8 and M1.6 hit). Use `grep -m1 -o` when you need the first match.
 - **Number discipline:** contract/manifest counts are unchanged at **31 contracts / 10 manifests**. If `check-arch.sh` prints different numbers, trust the command, note it, do not "fix" anything.
 - **Quote every path that contains a variable** (`"$DATA/x"`, `"/tmp/m17-$i.log"`). Fixed literal script paths (`bash scripts/build.sh`, `source scripts/lib/kernel-harness.sh`) follow the repo's existing unquoted style.
 - **Commit trailer** — every commit message ends with exactly:
@@ -309,7 +309,12 @@ Then: `chmod +x scripts/qualify-done-integrity.sh`.
 
 - [ ] **Step 2: Run it — S1 passes**
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -eq 0 ] || { echo "qualification failed rc=$rc"; exit 1; }
+echo "qual exit=$rc"
+```
 Expected: `S1 OK: external direct work.transition denied for every target state`, then `DONE-INTEGRITY QUALIFICATION: OK`, then `qual exit=0`.
 Run: `pgrep -f 'vibe-kernel|plugins/manifests' | wc -l` → `0`.
 
@@ -317,8 +322,13 @@ Run: `pgrep -f 'vibe-kernel|plugins/manifests' | wc -l` → `0`.
 
 Edit `config/m1-policy.json`: add `"work.transition@1",` as the first element of `grants."local-cli".capabilities`.
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
-Expected: **FAIL** — the very first loop iteration (`-to IN_PROGRESS`) now succeeds, so its `case` has no `did not grant` and the script calls `fail "S1 FAIL: local-cli was NOT denied work.transition -to IN_PROGRESS: status IN_PROGRESS  version 2"` and exits 1. (Later iterations never run.)
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected S1 qualification failure"; exit 1; }
+case "$out" in *"S1 FAIL: local-cli was NOT denied work.transition -to IN_PROGRESS"*) echo "M-S1 RED" ;; *) echo "unexpected S1 mutation output"; exit 1 ;; esac
+```
+Expected: **FAIL** with `rc=1` — the very first loop iteration (`-to IN_PROGRESS`) now succeeds, so its `case` has no `did not grant` and the script calls `fail "S1 FAIL: local-cli was NOT denied work.transition -to IN_PROGRESS: status IN_PROGRESS  version 2"`. (Later iterations never run.)
 
 Revert: `git checkout "config/m1-policy.json"`. Re-run → `DONE-INTEGRITY QUALIFICATION: OK`.
 
@@ -401,7 +411,12 @@ echo "S2 OK: failing test and failing build both blocked at the gate"
 
 - [ ] **Step 2: Run it — S1 + S2 pass**
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -eq 0 ] || { echo "qualification failed rc=$rc"; exit 1; }
+echo "qual exit=$rc"
+```
 Expected: `S1 OK ...`, `S2 OK: failing test and failing build both blocked at the gate`, `DONE-INTEGRITY QUALIFICATION: OK`, `qual exit=0`.
 
 - [ ] **Step 3: Falsify S2 (致残对照) — remove the test-PASS check, confirm red, revert**
@@ -414,8 +429,13 @@ In `plugins/engineering-workflow/gate.go`, delete these three lines from `doneGa
 	}
 ```
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
-Expected: **FAIL** — the first `s2_run` (`sh -c true` / `sh -c false`) now yields `outcome DONE`, `vibe workflow run` exits 0, so `fail "S2 FAIL: workflow run exited 0 with sh -c true / sh -c false"`, `qual exit=1`.
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected S2 qualification failure"; exit 1; }
+case "$out" in *"S2 FAIL: workflow run exited 0 with sh -c true / sh -c false"*) echo "M-S2 RED" ;; *) echo "unexpected S2 mutation output"; exit 1 ;; esac
+```
+Expected: **FAIL** with `rc=1` — the first `s2_run` (`sh -c true` / `sh -c false`) now yields `outcome DONE`, `vibe workflow run` exits 0, so `fail "S2 FAIL: workflow run exited 0 with sh -c true / sh -c false"`.
 
 Revert: `git checkout "plugins/engineering-workflow/gate.go"`. Re-run → `S2 OK` again.
 
@@ -478,14 +498,20 @@ case "$s3_out" in *"outcome TIMEOUT"*) : ;; *) fail "S3 FAIL: expected TIMEOUT, 
 RREAL="$(printf '%s\n' "$s3_out" | sed -n 's/.*  review \([^ ]*\)  session.*/\1/p')"
 { [ -n "$RREAL" ] && [ "$RREAL" != "$RFAKE" ]; } || fail "S3 FAIL: workflow did not open its own review (real='$RREAL' fake='$RFAKE'): $s3_out"
 
-# Both reviews exist under the WC: the injected one APPROVED, the workflow's own PENDING.
+# Both reviews exist under the WC: assert exactly two records and bind each id to
+# its expected status, rather than merely finding the two status strings somewhere
+# in the payload. The review handler emits compact JSON with one object separator.
 rq="$(.bin/vibe-raw -socket "$SOCK" -identity local-cli -token "$TOKEN" \
         -cap review.query -kind query -service default-review -authority reviews-main \
         -payload "{\"work_context_id\":\"$S3_WC\"}" 2>&1 || true)"
-case "$rq" in *"\"$RFAKE\""*) : ;; *) fail "S3 FAIL: review.query missing injected review $RFAKE: $rq" ;; esac
-case "$rq" in *"\"$RREAL\""*) : ;; *) fail "S3 FAIL: review.query missing workflow review $RREAL: $rq" ;; esac
-case "$rq" in *'"status":"APPROVED"'*) : ;; *) fail "S3 FAIL: review.query has no APPROVED review: $rq" ;; esac
-case "$rq" in *'"status":"PENDING"'*) : ;; *) fail "S3 FAIL: review.query has no PENDING review: $rq" ;; esac
+rows="$(printf '%s\n' "$rq" | sed 's/},{/}\\
+{/g')"
+n="$(printf '%s\n' "$rows" | grep -c '"id":"' || true)"
+[ "$n" = 2 ] || fail "S3 FAIL: review.query expected exactly 2 reviews, got $n: $rq"
+fake_row="$(printf '%s\n' "$rows" | grep -F "\"id\":\"$RFAKE\"" || true)"
+real_row="$(printf '%s\n' "$rows" | grep -F "\"id\":\"$RREAL\"" || true)"
+case "$fake_row" in *"\"id\":\"$RFAKE\""*'"status":"APPROVED"'*) : ;; *) fail "S3 FAIL: review.query injected review is not APPROVED: $rq" ;; esac
+case "$real_row" in *"\"id\":\"$RREAL\""*'"status":"PENDING"'*) : ;; *) fail "S3 FAIL: review.query workflow review is not PENDING: $rq" ;; esac
 
 ts="$($VD task show "$S3_TASK" 2>&1 || true)"
 case "$ts" in *"status DONE"*) fail "S3 FAIL: task DONE despite undecided real review: $ts" ;; esac
@@ -497,7 +523,12 @@ echo "S3 OK: injected APPROVED review is never consulted; undecided real review 
 
 - [ ] **Step 2: Run it — S1–S3 pass**
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -eq 0 ] || { echo "qualification failed rc=$rc"; exit 1; }
+echo "qual exit=$rc"
+```
 Expected: `S1 OK`, `S2 OK`, `S3 OK: injected APPROVED review is never consulted...`, `DONE-INTEGRITY QUALIFICATION: OK`, `qual exit=0`.
 
 If `S3 FAIL: workflow did not open its own review (real='' ...)` appears, the 20 s deadline fired before the pipeline created its review on this machine — raise the `-timeout 20s` in this S3 block to `40s` and re-run. Log this as a degradation; it is not a stop.
@@ -531,8 +562,13 @@ with:
 		return map[string]any{"review": r}, nil
 ```
 
-Run: `bash scripts/qualify-done-integrity.sh; echo "qual exit=$?"`
-Expected: **FAIL** — the pipeline's poll of its own (PENDING) review now resolves to `R_fake` (APPROVED); the poll loop breaks and `doneGate` rejects on the diff mismatch, so the outcome is `GATE_FAILED` not `TIMEOUT`: `fail "S3 FAIL: expected TIMEOUT, got: ... outcome GATE_FAILED ... reason diff: ..."`, `qual exit=1`.
+```bash
+out="$(bash scripts/qualify-done-integrity.sh 2>&1)"; rc=$?
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected S3 qualification failure"; exit 1; }
+case "$out" in *"S3 FAIL: expected TIMEOUT, got:"*"outcome GATE_FAILED"*) echo "M-S3 RED" ;; *) echo "unexpected S3 mutation output"; exit 1 ;; esac
+```
+Expected: **FAIL** with `rc=1` — the pipeline's poll of its own (PENDING) review now resolves to `R_fake` (APPROVED); the poll loop breaks and `doneGate` rejects on the diff mismatch, so the outcome is `GATE_FAILED` not `TIMEOUT`: `fail "S3 FAIL: expected TIMEOUT, got: ... outcome GATE_FAILED ... reason diff: ..."`.
 (Defence in depth this exposes: even with the poll fooled, the `diff_artifact_id` binding still blocks `DONE` — the task never actually reaches `DONE`, only the outcome label changes. S3 asserts on `outcome == TIMEOUT` precisely so it still falsifies.)
 
 Revert: `git checkout "plugins/review/handlers.go"`. Re-run → `S3 OK` again.
@@ -568,7 +604,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `fakePipeline` / `.caps()` / `baseRun()` from `pipeline_test.go`; `approved(diff string, acc ...bool) ReviewState` from `gate_test.go`; `runPipeline(ctx, caps, RunRequest) RunResult` from `pipeline.go`.
-- Produces: `TestRunPipelineGateFailOnStaleDiff` in `pipeline_test.go`; an `S4 OK` echo line in the harness.
+- Produces: `TestRunPipelineGateFailOnStaleDiff` in `pipeline_test.go`; an `S4 SEAM OK` pointer line in the harness.
 
 **Why this shape:** a genuinely live S4 (the workflow's *own* review carrying a stale diff) has no code path in M1 — `runPipeline` passes one `diff` variable to both `ReviewRequest` and `doneGate`. So S4 is proven at the `runPipeline` integration seam with fake capability closures: an APPROVED review whose `DiffArtifactID` differs from the collected diff (`"art-1"`) must make `runPipeline` return `GATE_FAILED` and skip the `DONE` transition. This is strictly more than `gate_test.go` (which unit-tests `doneGate` alone).
 
@@ -626,19 +662,24 @@ In `scripts/qualify-done-integrity.sh`, immediately before the final `echo "DONE
 #   plugins/engineering-workflow/pipeline_test.go::TestRunPipelineGateFailOnStaleDiff
 #   (APPROVED review, DiffArtifactID != collected diff => GATE_FAILED, no DONE)
 # plus the predicate unit test gate_test.go::TestDoneGateFailsOnEachCondition/'wrong diff'.
-echo "S4 OK: wrong-diff review rejected by the gate (pipeline_test.go + gate_test.go)"
+echo "S4 SEAM OK: wrong-diff review rejected by the gate (pipeline_test.go + gate_test.go)"
 ```
 
 - [ ] **Step 5: Run the whole harness + the package tests**
 
 ```bash
-go test ./plugins/engineering-workflow/ && echo PKG_OK
+if go test ./plugins/engineering-workflow/; then
+  echo PKG_OK
+else
+  echo "engineering-workflow package tests failed"
+  exit 1
+fi
 bash scripts/qualify-done-integrity.sh >/tmp/m17-qual-s4.log 2>&1 ; rc=$?
 tail -6 /tmp/m17-qual-s4.log
 last="$(tail -1 /tmp/m17-qual-s4.log)"
 { [ "$rc" -eq 0 ] && [ "$last" = "DONE-INTEGRITY QUALIFICATION: OK" ]; } && echo QUAL_OK || { echo "qual rc=$rc last='$last'"; exit 1; }
 ```
-Expected: `PKG_OK`, then the harness tail showing `S1 OK`…`S4 OK` and `DONE-INTEGRITY QUALIFICATION: OK`, then `QUAL_OK`.
+Expected: `PKG_OK`, then the harness tail showing `S1 OK`…`S3 OK`, `S4 SEAM OK`, and `DONE-INTEGRITY QUALIFICATION: OK`, then `QUAL_OK`.
 
 - [ ] **Step 6: Commit**
 
@@ -685,8 +726,14 @@ Expected: `BUILD_OK`, exit 0.
 - [ ] **Step 2: Go tests**
 
 ```bash
-go test ./plugins/... ./plugins/_template ./cli/... && ( cd kernel && go test ./... ) && echo GO_TESTS_OK
-out="$(go test ./plugins/engineering-workflow/ -run TestRunPipelineGateFailOnStaleDiff -v)"
+if go test ./plugins/... ./plugins/_template ./cli/... && ( cd kernel && go test ./... ); then
+  echo GO_TESTS_OK
+else
+  echo "Go test suite failed"
+  exit 1
+fi
+out="$(go test ./plugins/engineering-workflow/ -run TestRunPipelineGateFailOnStaleDiff -v 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || { printf '%s\n' "$out"; echo "S4 test command failed rc=$rc"; exit 1; }
 case "$out" in *"--- PASS: TestRunPipelineGateFailOnStaleDiff"*) echo S4_TEST_PRESENT ;; *) printf '%s\n' "$out"; echo "S4 test not passing"; exit 1 ;; esac
 ```
 Expected: `GO_TESTS_OK`, then `S4_TEST_PRESENT`.
@@ -705,7 +752,7 @@ Expected: the script's own `M0.5 ADVERSARIAL QUALIFICATION: PASSED` line, then `
 out="$(bash scripts/check-arch.sh)" ; rc=$?
 printf '%s\n' "$out"
 [ "$rc" -eq 0 ] || { echo "check-arch exit $rc"; exit 1; }
-case "$out" in *"CONTRACT CHECK: PASSED"*"COMPOSITION FITNESS: PASSED"*"ARCH CHECKS OK"*) echo ARCH_OK ;; *) echo "check-arch output unexpected"; exit 1 ;; esac
+case "$out" in *"CONTRACT CHECK: PASSED"*"COMPOSITION FITNESS: PASSED"*"ARCHITECTURE FITNESS: PASSED"*"ARCH CHECKS OK"*) echo ARCH_OK ;; *) echo "check-arch output unexpected"; exit 1 ;; esac
 [ -z "$(git diff --name-only "$BASE" HEAD -- scripts/check-arch.sh)" ] && echo CHECK_ARCH_UNTOUCHED || { echo "check-arch.sh was modified"; exit 1; }
 ```
 Expected: the four `check-arch` lines, then `ARCH_OK`, then `CHECK_ARCH_UNTOUCHED`. (If the printed contract/manifest counts differ from 31/10, trust the command and note it — M1.7 adds none.)
@@ -720,12 +767,15 @@ for i in 1 2 3; do
   [ "$last" = "DONE-INTEGRITY QUALIFICATION: OK" ] || { echo "qual run $i: bad last line '$last'"; cat "/tmp/m17-qual-$i.log"; exit 1; }
   echo "qual run $i OK"
 done
-n="$(grep -hE '^S[1-4] OK' /tmp/m17-qual-1.log | wc -l | tr -d ' ')"
-[ "$n" = 4 ] && echo "S1-S4 all OK" || { echo "expected 4 S-markers, got $n"; exit 1; }
+markers="$(grep -hE '^(S[1-3] OK|S4 SEAM OK)' /tmp/m17-qual-1.log || true)"
+case "$markers" in
+  *"S1 OK"*"S2 OK"*"S3 OK"*"S4 SEAM OK"*) echo "S1-S3 live + S4 seam all OK" ;;
+  *) printf '%s\n' "$markers"; echo "qualification markers incomplete"; exit 1 ;;
+esac
 orph="$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')"
 [ "$orph" = 0 ] && echo NO_ORPHANS || { echo "orphan procs: $orph"; exit 1; }
 ```
-Expected: `qual run 1 OK` … `qual run 3 OK`, `S1-S4 all OK`, `NO_ORPHANS`.
+Expected: `qual run 1 OK` … `qual run 3 OK`, `S1-S3 live + S4 seam all OK`, `NO_ORPHANS`.
 
 - [ ] **Step 6: Smoke still green — run it 5×**
 
@@ -738,8 +788,10 @@ for i in 1 2 3 4 5; do
   ! grep -q 'FAIL' "/tmp/m17-smoke5-$i.log" || { echo "smoke run $i: contains FAIL"; grep 'FAIL' "/tmp/m17-smoke5-$i.log"; exit 1; }
   echo "smoke run $i OK"
 done
+orph="$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')"
+[ "$orph" = 0 ] && echo NO_ORPHANS || { echo "orphan procs: $orph"; exit 1; }
 ```
-Expected: `smoke run 1 OK` … `smoke run 5 OK`.
+Expected: `smoke run 1 OK` … `smoke run 5 OK`, then `NO_ORPHANS`.
 
 - [ ] **Step 7: The full 致残对照 sweep — each mutation red, then reverted**
 
@@ -777,7 +829,7 @@ Branch `chatgpt/m1-7-done-integrity-qualification` → `main`, title **M1.7 — 
 - the 5-commit table (Task 1–5);
 - the raw output of Steps 1–8;
 - the 致残对照 sweep results — for each of M-S1…M-S4: the mutation, the command, the exact red line, and "green again after `git checkout`";
-- a one-line scope statement: *this proves the four §4.4 attacks are blocked; it is not a proof that every bypass path is closed.*
+- a one-line scope statement: *S1–S3 are live-kernel checks and S4 is a `runPipeline → doneGate` seam plus predicate check; together they cover the four §4.4 attacks, but this is not a proof that every bypass path is closed.*
 - "The reviewer will re-run all of the above independently and redo the 致残对照 — self-report is not acceptance."
 
 ---
@@ -804,9 +856,10 @@ Branch `chatgpt/m1-7-done-integrity-qualification` → `main`, title **M1.7 — 
 | §10 dispatch (clean tarball, BASE capture, degrade clauses, stop criteria, reviewer re-runs) | dispatch prompt (separate artifact); BASE in Base section; Task 6 Step 9 |
 | Codex review R1: S4 real coverage; review.query assertion; unified fail diagnostics; pipe exit-code + `grep|head`; G1 scope; drift | Task 5; Task 4 Step 1; Task 2 Step 1; `grep -m1 -o`; Task 6 Step 8 `-- kernel`; S1 red text fixed, plan-not-in-diff noted |
 | Codex review R2: spec S4 wording unified; every Task 6 step fail-closed (`rc=$?` capture, marker greps, `exit 1` on deviation); "quote paths with variables"; single `-timeout` wording | spec §3 Out + §2 aligned to §4; Task 6 Steps 1–8 rewritten; Global Constraints; Task 4 Step 2 |
+| Codex review R3: evidence wording, prerequisite exit-code masking, S4 pointer naming, smoke orphan check, architecture marker, Python wording | Goal + Global Constraints; Task 5 Step 5; Task 6 Steps 2/4/6; Tech Stack; Task 6 Step 9 |
 
-No gaps.
+No open plan gaps after the R3 corrections above.
 
 **2. Placeholder scan** — no TBD/TODO; every code step has literal file content or a literal patch; every run step has an exact command and expected output.
 
-**3. Type/name consistency** — `$VQ`=local-cli, `$VD`=m1-dev throughout. `fail` defined in Task 2, used Tasks 2–5. `s2_run` defined+called in Task 3. `$RFAKE`/`$RREAL`/`$S3_WC` defined+used in Task 4. `TestRunPipelineGateFailOnStaleDiff` / `fakePipeline` / `approved` / `baseRun` / `runPipeline` match `pipeline_test.go` + `gate_test.go` + `pipeline.go`. Script markers `S1 OK`…`S4 OK` + `DONE-INTEGRITY QUALIFICATION: OK` consistent between script, run steps, and Task 6 greps. CLI substrings (`did not grant`, `outcome GATE_FAILED`, `outcome TIMEOUT`, `status APPROVED`, `status DONE`, `reason test:`, `reason build:`, `stage WAITING_REVIEW`, `"review_id":"`, `"status":"APPROVED"`, `"status":"PENDING"`) match the CLI-shapes table and `cli/vibe/main.go` / the review response shape. `restart_kernel` / `build_bins` / `kill_kernel_tree` names match between library and callers.
+**3. Type/name consistency** — `$VQ`=local-cli, `$VD`=m1-dev throughout. `fail` defined in Task 2, used Tasks 2–5. `s2_run` defined+called in Task 3. `$RFAKE`/`$RREAL`/`$S3_WC` defined+used in Task 4. `TestRunPipelineGateFailOnStaleDiff` / `fakePipeline` / `approved` / `baseRun` / `runPipeline` match `pipeline_test.go` + `gate_test.go` + `pipeline.go`. Script markers `S1 OK`…`S3 OK` + `S4 SEAM OK` + `DONE-INTEGRITY QUALIFICATION: OK` consistent between script, run steps, and Task 6 greps. CLI substrings (`did not grant`, `outcome GATE_FAILED`, `outcome TIMEOUT`, `status APPROVED`, `status DONE`, `reason test:`, `reason build:`, `stage WAITING_REVIEW`, `"review_id":"`, `"status":"APPROVED"`, `"status":"PENDING"`) match the CLI-shapes table and `cli/vibe/main.go` / the review response shape. `restart_kernel` / `build_bins` / `kill_kernel_tree` names match between library and callers.
