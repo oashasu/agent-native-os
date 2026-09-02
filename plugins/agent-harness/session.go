@@ -34,6 +34,7 @@ func runProvider(ctx context.Context, prov Provider, spec RunSpec, mirror chan<-
 		tr.Frames = append(tr.Frames, f)
 		select {
 		case mirror <- f:
+		case <-ctx.Done():
 		case <-time.After(2 * time.Second):
 		}
 	}

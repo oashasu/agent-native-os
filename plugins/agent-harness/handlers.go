@@ -147,24 +147,59 @@ func queryHandler(s *Store) pluginhost.Handler {
 	}
 }
 
-func cancelHandler(s *Store) pluginhost.Handler {
+func cancelHandler(s *Store, runs *runRegistry) pluginhost.Handler {
 	return func(e protocol.Envelope) (any, *protocol.Error) {
 		var q agentRunIDRequest
 		if err := json.Unmarshal(e.Payload, &q); err != nil || q.AgentRunID == "" {
 			return nil, &protocol.Error{Code: "INVALID", Message: "agent_run_id is required"}
 		}
-		err := fencing.WithWriteFence(e, func() error { return s.RecordCancelled(q.AgentRunID) })
-		if err != nil {
-			switch {
-			case errors.Is(err, ErrNotFound):
-				return nil, &protocol.Error{Code: "NOT_FOUND", Message: err.Error()}
-			case errors.Is(err, ErrAlreadyTerminal):
-				return nil, &protocol.Error{Code: "CONFLICT", Message: err.Error()}
-			default:
-				return nil, &protocol.Error{Code: "IO", Message: err.Error(), Retryable: true}
+		ar, ok := s.GetByID(q.AgentRunID)
+		if !ok {
+			return nil, &protocol.Error{Code: "NOT_FOUND", Message: "agent run not found"}
+		}
+		if ar.Status != StatusRunning {
+			return nil, &protocol.Error{Code: "CONFLICT", Message: "already " + ar.Status}
+		}
+
+		done, live := runs.stop(q.AgentRunID)
+		if live {
+			select {
+			case <-done:
+				final, ok := s.GetByID(q.AgentRunID)
+				if !ok {
+					return nil, &protocol.Error{Code: "NOT_FOUND", Message: "agent run disappeared after cancel"}
+				}
+				if final.Status == StatusRunning {
+					return nil, &protocol.Error{Code: "IO", Retryable: true, Message: "cancel: provider stopped but terminal record was not persisted"}
+				}
+				return map[string]any{"agent_run": final}, nil
+			case <-time.After(30 * time.Second):
+				return nil, &protocol.Error{Code: "IO", Retryable: true, Message: "cancel: provider did not stop within 30s"}
 			}
 		}
-		ar, _ := s.GetByID(q.AgentRunID)
-		return map[string]any{"agent_run": ar}, nil
+
+		// Not live: registry lost the run (plugin restarted) or it unregistered
+		// between GetByID and stop. Re-check, then fall back to a fenced
+		// store-only CANCELLED.
+		cur, ok := s.GetByID(q.AgentRunID)
+		if !ok {
+			return nil, &protocol.Error{Code: "NOT_FOUND", Message: "agent run not found"}
+		}
+		if cur.Status != StatusRunning {
+			return nil, &protocol.Error{Code: "CONFLICT", Message: "already " + cur.Status}
+		}
+		err := fencing.WithWriteFence(e, func() error { return s.RecordCancelled(q.AgentRunID) })
+		if err != nil {
+			if errors.Is(err, ErrAlreadyTerminal) {
+				again, _ := s.GetByID(q.AgentRunID)
+				return nil, &protocol.Error{Code: "CONFLICT", Message: "already " + again.Status}
+			}
+			if errors.Is(err, ErrNotFound) {
+				return nil, &protocol.Error{Code: "NOT_FOUND", Message: err.Error()}
+			}
+			return nil, &protocol.Error{Code: "IO", Message: err.Error(), Retryable: true}
+		}
+		final, _ := s.GetByID(q.AgentRunID)
+		return map[string]any{"agent_run": final}, nil
 	}
 }

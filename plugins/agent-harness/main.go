@@ -43,7 +43,7 @@ func main() {
 	h.HandleContextCommand("agent.run", 1, agentRunHandler(deps))
 	h.HandleQuery("agent.run.get", 1, getHandler(s))
 	h.HandleQuery("agent.run.query", 1, queryHandler(s))
-	h.HandleContextCommand("agent.run.cancel", 1, wrap(cancelHandler(s)))
+	h.HandleContextCommand("agent.run.cancel", 1, wrap(cancelHandler(s, deps.Runs)))
 	if err := h.Serve(); err != nil {
 		panic(err)
 	}

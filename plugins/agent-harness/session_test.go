@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunProviderMirrorsAndCaptures(t *testing.T) {
@@ -39,4 +40,37 @@ func TestRunProviderClosesMirrorEvenOnFailure(t *testing.T) {
 	if tr.Result.Status != StatusFailed {
 		t.Fatalf("want FAILED, got %+v", tr.Result)
 	}
+}
+
+func TestRunProviderStopsMirroringOnCancel(t *testing.T) {
+	// A provider that emits one frame, then blocks until ctx is done.
+	prov := blockingProvider{emitted: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	mirror := make(chan any) // unbuffered, no consumer
+	doneCh := make(chan Transcript, 1)
+	go func() { doneCh <- runProvider(ctx, prov, RunSpec{Prompt: "p"}, mirror) }()
+	select {
+	case <-prov.emitted:
+	case <-time.After(1 * time.Second):
+		t.Fatal("blocking provider did not emit")
+	}
+	cancel()
+	select {
+	case <-doneCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("runProvider did not return promptly after cancel")
+	}
+}
+
+type blockingProvider struct {
+	emitted chan struct{}
+}
+
+func (blockingProvider) Name() string { return "blocking" }
+func (p blockingProvider) Run(ctx context.Context, _ RunSpec, out chan<- Frame) RunResult {
+	defer close(out)
+	out <- Frame{Kind: "stdout", Text: "one", Index: 1}
+	close(p.emitted)
+	<-ctx.Done()
+	return RunResult{Status: StatusCancelled}
 }
