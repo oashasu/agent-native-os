@@ -21,7 +21,6 @@ func codexArgv(spec RunSpec) []string {
 	return []string{
 		"exec",
 		"--cd", spec.WorkspacePath,
-		"-s", "workspace-write",
 		"--approve-for-me",
 		"--skip-git-repo-check",
 		"--json",

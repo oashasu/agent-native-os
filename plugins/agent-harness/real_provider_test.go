@@ -92,7 +92,7 @@ func tmpl(extra ...string) func(RunSpec) []string {
 
 func TestCodexArgvIsExact(t *testing.T) {
 	got := codexArgv(RunSpec{WorkspacePath: "/workspace", Prompt: "harden the parser"})
-	want := []string{"exec", "--cd", "/workspace", "-s", "workspace-write", "--approve-for-me", "--skip-git-repo-check", "--json", "--color", "never", "--", "harden the parser"}
+	want := []string{"exec", "--cd", "/workspace", "--approve-for-me", "--skip-git-repo-check", "--json", "--color", "never", "--", "harden the parser"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("codex argv = %#v, want %#v", got, want)
 	}
