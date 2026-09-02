@@ -40,7 +40,7 @@ func (f *fakePipeline) caps() caps {
 		},
 		WorkspaceAlloc:   func(_, _ string) (string, string, error) { f.add("allocate"); return "ws-1", "/tmp/ws", nil },
 		WorkspaceRelease: func(_, _ string) error { f.add("release"); return nil },
-		AgentRun: func(_, _, _, _, _ string) (string, string, error) {
+		AgentRun: func(_, _, _, _, _, _ string) (string, string, error) {
 			f.add("agent")
 			st := f.agentStatus
 			if st == "" {
@@ -183,5 +183,30 @@ func TestRunPipelineTaskNotFound(t *testing.T) {
 	r := runPipeline(context.Background(), c, baseRun())
 	if r.Outcome != "GATE_FAILED" || r.Reason != "task not found" {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func TestRunPipelineForwardsProvider(t *testing.T) {
+	f := &fakePipeline{reviews: []ReviewState{approved("art-1", true)}}
+	var gotProvider string
+	c := f.caps()
+	c.AgentRun = func(provider, _, _, _, _, _ string) (string, string, error) {
+		gotProvider = provider
+		return "ar-1", "COMPLETED", nil
+	}
+	_ = runPipeline(context.Background(), c, RunRequest{TaskID: "task-1", Prompt: "go", Provider: "codex", BuildCommand: []string{"true"}, TestCommand: []string{"true"}, ReviewPollMS: 1})
+	if gotProvider != "codex" {
+		t.Fatalf("provider forwarded as %q", gotProvider)
+	}
+
+	gotProvider = ""
+	c2 := f.caps()
+	c2.AgentRun = func(provider, _, _, _, _, _ string) (string, string, error) {
+		gotProvider = provider
+		return "ar-1", "COMPLETED", nil
+	}
+	_ = runPipeline(context.Background(), c2, RunRequest{TaskID: "task-1", Prompt: "go", BuildCommand: []string{"true"}, TestCommand: []string{"true"}, ReviewPollMS: 1})
+	if gotProvider != "mock" {
+		t.Fatalf("empty provider forwarded as %q, want mock", gotProvider)
 	}
 }
