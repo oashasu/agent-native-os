@@ -21,9 +21,11 @@ func main() {
 	}
 	h := pluginhost.New("org.vibe.agent.harness", "1.0.0", "")
 	deps := runDeps{
-		Store: s,
-		Prov:  MockProvider{},
-		Now:   func() string { return time.Now().UTC().Format(time.RFC3339Nano) },
+		Store:           s,
+		Providers:       discoverProviders(candidatesFromEnv(), allowlistFromEnv(), os.Stderr),
+		DefaultProvider: "mock",
+		Runs:            newRunRegistry(),
+		Now:             func() string { return time.Now().UTC().Format(time.RFC3339Nano) },
 		BlobPut: func(payload []byte) (string, error) {
 			resp, cerr := h.Command("blob.put", 1, map[string]string{"content_base64": b64(payload)}, 30*time.Second)
 			if cerr != nil {

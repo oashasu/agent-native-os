@@ -33,7 +33,7 @@ func TestRunOncePersistsTerminalRun(t *testing.T) {
 	var putBytes []byte
 	var mu sync.Mutex
 	deps := runDeps{
-		Store: s, Prov: MockProvider{}, Now: func() string { return "t0" },
+		Store: s, Now: func() string { return "t0" },
 		BlobPut: func(b []byte) (string, error) {
 			mu.Lock()
 			putBytes = b
@@ -51,7 +51,7 @@ func TestRunOncePersistsTerminalRun(t *testing.T) {
 	out := make(chan any, 64)
 	done := make(chan struct{})
 	go func() {
-		runOnce(context.Background(), deps, ar, RunSpec{WorkspacePath: ws, Prompt: "p", MockSteps: 3, MockDelayMS: 1, MockWriteFile: "f.txt", MockWriteContent: "z\n"}, out)
+		runOnce(context.Background(), MockProvider{}, deps, ar, RunSpec{WorkspacePath: ws, Prompt: "p", MockSteps: 3, MockDelayMS: 1, MockWriteFile: "f.txt", MockWriteContent: "z\n"}, out)
 		close(done)
 	}()
 	for range out {
@@ -78,11 +78,58 @@ func TestRunOncePersistsTerminalRun(t *testing.T) {
 func TestAgentRunHandlerRejectsMissingFields(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Load(dir)
-	deps := runDeps{Store: s, Prov: MockProvider{}, BlobPut: func([]byte) (string, error) { return "", nil }, Persist: func(string, string, string, int, json.RawMessage) error { return nil }, Now: func() string { return "t0" }}
+	deps := runDeps{Store: s, Providers: map[string]Provider{"mock": MockProvider{}}, DefaultProvider: "mock", Runs: newRunRegistry(), BlobPut: func([]byte) (string, error) { return "", nil }, Persist: func(string, string, string, int, json.RawMessage) error { return nil }, Now: func() string { return "t0" }}
 	h := agentRunHandler(deps)
 	_, perr := h(&pluginhost.RequestContext{}, protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"prompt": "p"})})
 	if perr == nil || perr.Code != "INVALID" {
 		t.Fatalf("want INVALID, got %+v", perr)
+	}
+}
+
+// agentDeps builds runDeps whose Store is the SAME one the fenced envelope
+// expects (fencedEnv wrote the lease under dir; Load(dir) reads/writes there).
+func agentDeps(t *testing.T, dir string, providers map[string]Provider) (runDeps, *Store) {
+	t.Helper()
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runDeps{
+		Store: s, Providers: providers, DefaultProvider: "mock", Runs: newRunRegistry(),
+		Now:     func() string { return "t0" },
+		BlobPut: func([]byte) (string, error) { return "blob://sha256/x", nil },
+	}, s
+}
+
+func TestStartAgentRunProviderSelection(t *testing.T) {
+	dir := t.TempDir()
+	env := fencedEnv(t, dir)
+	deps, _ := agentDeps(t, dir, map[string]Provider{"mock": MockProvider{}})
+
+	out := make(chan any, 64)
+	q := agentRunRequest{WorkContextID: "wc-1", WorkspacePath: t.TempDir(), Prompt: "p", MockSteps: 2, MockDelayMS: 1}
+	ar, perr := startAgentRun(context.Background(), deps, env, q, out)
+	if perr != nil {
+		t.Fatalf("perr=%+v", perr)
+	}
+	for range out {
+	}
+	if ar.Provider != "mock" || ar.HarnessNativeID != "mock-"+ar.ID {
+		t.Fatalf("ar=%+v", ar)
+	}
+}
+
+func TestStartAgentRunUnknownProviderNoRecord(t *testing.T) {
+	dir := t.TempDir()
+	env := fencedEnv(t, dir)
+	deps, store := agentDeps(t, dir, map[string]Provider{"mock": MockProvider{}})
+	out := make(chan any, 1)
+	_, perr := startAgentRun(context.Background(), deps, env, agentRunRequest{WorkContextID: "wc-1", WorkspacePath: t.TempDir(), Prompt: "p", Provider: "bogus"}, out)
+	if perr == nil || perr.Code != "INVALID" {
+		t.Fatalf("want INVALID, got %+v", perr)
+	}
+	if len(store.QueryByContext("wc-1")) != 0 {
+		t.Fatal("orphan RUNNING record written for unknown provider")
 	}
 }
 
