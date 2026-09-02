@@ -49,3 +49,14 @@ func TestGetHandlerFilters(t *testing.T) {
 		t.Fatalf("%s", b)
 	}
 }
+
+func TestAgentRunPayloadCarriesProvider(t *testing.T) {
+	p := agentRunPayload("codex", "wc-1", "/ws", "prompt", "f", "c")
+	if p["provider"] != "codex" {
+		t.Fatalf("payload provider = %v", p["provider"])
+	}
+	p2 := agentRunPayload("mock", "wc-1", "/ws", "prompt", "", "")
+	if p2["provider"] != "mock" {
+		t.Fatalf("payload provider = %v", p2["provider"])
+	}
+}

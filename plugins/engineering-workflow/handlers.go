@@ -10,6 +10,17 @@ import (
 	"github.com/example/agent-native-microkernel/sdk/go/protocol"
 )
 
+func agentRunPayload(provider, wc, path, prompt, writeFile, writeContent string) map[string]any {
+	return map[string]any{
+		"work_context_id":    wc,
+		"workspace_path":     path,
+		"prompt":             prompt,
+		"provider":           provider,
+		"mock_write_file":    writeFile,
+		"mock_write_content": writeContent,
+	}
+}
+
 func runHandler(mkCaps func(rc *pluginhost.RequestContext, e protocol.Envelope) caps) pluginhost.ContextHandler {
 	return func(rc *pluginhost.RequestContext, e protocol.Envelope) (any, *protocol.Error) {
 		var req RunRequest
@@ -121,8 +132,8 @@ func realCaps(rc *pluginhost.RequestContext, _ protocol.Envelope) caps {
 			_, err := rc.Command("workspace.release", 1, map[string]string{"workspace_id": id, "policy": policy}, 2*time.Minute)
 			return err
 		},
-		AgentRun: func(wc, path, prompt, writeFile, writeContent string) (string, string, error) {
-			stream, accepted, err := rc.CommandStream("agent.run", 1, map[string]any{"work_context_id": wc, "workspace_path": path, "prompt": prompt, "provider": "mock", "mock_write_file": writeFile, "mock_write_content": writeContent}, 30*time.Minute)
+		AgentRun: func(provider, wc, path, prompt, writeFile, writeContent string) (string, string, error) {
+			stream, accepted, err := rc.CommandStream("agent.run", 1, agentRunPayload(provider, wc, path, prompt, writeFile, writeContent), 30*time.Minute)
 			if err != nil {
 				return "", "", err
 			}

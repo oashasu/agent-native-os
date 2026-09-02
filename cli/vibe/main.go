@@ -390,6 +390,12 @@ func command(capability string, payload any) protocol.Envelope {
 	}
 }
 
+func commandWithDeadline(capability string, payload any, timeout time.Duration) protocol.Envelope {
+	e := command(capability, payload)
+	e.Deadline = time.Now().Add(timeout).Format(time.RFC3339Nano)
+	return e
+}
+
 type agentRunView struct {
 	ID            string `json:"id"`
 	Status        string `json:"status"`
@@ -418,6 +424,8 @@ func agentRun(socket, identity, token string, args []string) error {
 	fs.SetOutput(os.Stderr)
 	workspace := fs.String("workspace", "", "workspace path")
 	prompt := fs.String("prompt", "", "agent prompt")
+	provider := fs.String("provider", "mock", "agent provider (mock | codex | …)")
+	timeout := fs.Duration("timeout", 30*time.Second, "overall command deadline")
 	steps := fs.Int("steps", 3, "mock steps")
 	failAt := fs.Int("fail-at", 0, "mock failure step")
 	writeFile := fs.String("write-file", "", "relative workspace file to append")
@@ -432,7 +440,7 @@ func agentRun(socket, identity, token string, args []string) error {
 		"work_context_id": wcID,
 		"workspace_path":  *workspace,
 		"prompt":          *prompt,
-		"provider":        "mock",
+		"provider":        *provider,
 		"mock_steps":      *steps,
 		"mock_fail_at":    *failAt,
 	}
@@ -442,7 +450,8 @@ func agentRun(socket, identity, token string, args []string) error {
 	if *writeContent != "" {
 		payload["mock_write_content"] = *writeContent
 	}
-	req := command("agent.run", payload)
+	req := commandWithDeadline("agent.run", payload, *timeout)
+	pollUntil := time.Now().Add(*timeout)
 	accepted, err := invokeStream(socket, identity, token, req, func(f protocol.Envelope) {
 		if f.Kind != protocol.KindStreamData {
 			return
@@ -464,8 +473,8 @@ func agentRun(socket, identity, token string, args []string) error {
 		return err
 	}
 	fmt.Printf("agent_run %s  stream %s\n", out.AgentRun.ID, out.StreamID)
-	for i := 0; i < 50; i++ {
-		run, err := fetchAgentRun(socket, identity, token, out.AgentRun.ID)
+	for time.Now().Before(pollUntil) {
+		run, err := fetchAgentRun(socket, identity, token, out.AgentRun.ID, pollUntil)
 		if err != nil {
 			return err
 		}
@@ -480,8 +489,8 @@ func agentRun(socket, identity, token string, args []string) error {
 
 const StatusRunningCLI = "RUNNING"
 
-func fetchAgentRun(socket, identity, token, runID string) (agentRunView, error) {
-	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "agent.run.get", Major: 1, Payload: protocol.NewPayload(map[string]string{"agent_run_id": runID})}
+func fetchAgentRun(socket, identity, token, runID string, deadline time.Time) (agentRunView, error) {
+	req := protocol.Envelope{Kind: protocol.KindQuery, Capability: "agent.run.get", Major: 1, Deadline: deadline.Format(time.RFC3339Nano), Payload: protocol.NewPayload(map[string]string{"agent_run_id": runID})}
 	resp, err := invoke(socket, identity, token, req)
 	if err != nil {
 		return agentRunView{}, err
@@ -529,7 +538,7 @@ func agentCancel(socket, identity, token string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("agent cancel requires <agent-run-id>")
 	}
-	resp, err := invoke(socket, identity, token, command("agent.run.cancel", map[string]string{"agent_run_id": args[0]}))
+	resp, err := invoke(socket, identity, token, commandWithDeadline("agent.run.cancel", map[string]string{"agent_run_id": args[0]}, 40*time.Second))
 	if err != nil {
 		return err
 	}
@@ -1005,6 +1014,7 @@ func workflowRun(socket, identity, token string, args []string) error {
 	pollMS := fs.Int("review-poll-ms", 0, "WAITING_REVIEW poll interval ms (0 = plugin default)")
 	mockFile := fs.String("mock-write-file", "", "mock provider: relative file to write")
 	mockContent := fs.String("mock-write-content", "", "mock provider: content to write")
+	provider := fs.String("provider", "mock", "agent provider")
 	timeout := fs.Duration("timeout", 30*time.Minute, "overall deadline")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -1029,6 +1039,9 @@ func workflowRun(socket, identity, token string, args []string) error {
 	}
 	if *mockContent != "" {
 		payload["mock_agent_write_content"] = *mockContent
+	}
+	if *provider != "" {
+		payload["provider"] = *provider
 	}
 	req := protocol.Envelope{
 		Kind: protocol.KindCommand, Capability: "workflow.engineering.run", Major: 1,

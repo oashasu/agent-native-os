@@ -16,4 +16,6 @@ done
 
 ( cd cli/vibe && go build -o "$OLDPWD/.bin/vibe" . )
 echo "built cli: vibe"
+( cd "plugins/agent-harness/fakeagentcli" && go build -o "$OLDPWD/.bin/fake-agent-cli" . )
+echo "built fixture: fake-agent-cli"
 echo "BUILD OK"
