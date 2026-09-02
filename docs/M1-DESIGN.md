@@ -244,6 +244,7 @@ AgentRun
 ├── prompt
 ├── provider                  # "mock" | "<discovered real provider>"
 ├── harness_native_id         # provider 私有会话标识（external metadata，C32）
+│                             #   M1.8：服务端合成 `<provider>-<run_id>`；真实 provider 原生 thread id 语义留待后续
 ├── status                    # RUNNING|COMPLETED|FAILED|CANCELLED|TIMEOUT
 ├── raw_session_ref           # blob URI（原始转录）
 ├── provider_metadata         # provider 私有字段 blob
@@ -379,8 +380,9 @@ work.get(task_id)
 - **Provider 中立**：`agent.run@1` 契约不得出现 `CodexThread / ClaudeConversation`。只认
   `prompt` / `workspace_ref` / `provider?` / 返回 `AgentRun` + `agent.frame` stream。
   私有 → `provider_metadata` / `harness_native_id` / `raw_session_ref`。
-- **运行时发现**：agent-adapter 启动探测 `codex --version` / `claude --version` / ...，选可用且接口最稳的为 real #1。
-  **M1 只接一个真实 provider。** 这台开发机可用 CLI 在 M1.8 前用 `which` / `--version` 确认。
+- **运行时发现**：agent-adapter 启动探测 `<bin> --version`，仅对有 argvTemplate 的候选（M1.8 只有 `codex`；`mock` 保留名不可被真实 provider 顶替）注册为 `RealProvider`。
+  **M1 只接一个真实 provider —— M1.8 落地的是 codex**（claude/gemini adapter 属 §9 NON-GOAL）。codex 调用形式见 §13 M1.8 行；`harness_native_id` 为服务端合成 `<provider>-<run_id>`。
+  `provider_metadata` 对真实 provider 只保留 `{provider, exit_code}`——不含 bin/argv/env/凭据/prompt。
 - **双轨（长期结构，非临时）**：
 
 ```text
@@ -557,7 +559,12 @@ M1.5  review（request/decide/get）+ session-history（seal/archive/SessionEven
 M1.6  engineering-workflow（无状态编排 + WAITING_REVIEW 轮询 + DONE gate） — done (PR #7)
 M1.7  对抗 qualification：external direct DONE 被拒 / stale review 被拒 / failed test 不能 DONE / wrong-diff approval 不能 DONE — done (PR #8)
       S1–S3 live-kernel（local-cli）；S4 无 M1 live 路径（单趟 workflow 一个 diff 变量喂 review+gate）→ runPipeline→doneGate 集成缝测试 + gate 谓词。仅 4 文件：scripts/lib/kernel-harness.sh、scripts/qualify-done-integrity.sh、scripts/smoke.sh、plugins/engineering-workflow/pipeline_test.go
-M1.8  agent-adapter 接真实 provider #1（运行时发现 codex/claude）
+M1.8  agent-adapter 接真实 provider #1（运行时发现 codex）— done (PR #9)
+      RealProvider 子进程适配器 + 启动运行时发现（`<bin> --version` 探测，argvTemplates 仅 codex）+ 按 run 选 provider（空⇒mock，未知⇒INVALID 于 RecordStarted 前）
+      + 活体 agent.run.cancel（run registry → 取消 provider ctx → 等终态记录；进程组 kill）。mock 全程默认，smoke/qualify/check-arch 不变。
+      派工侧对确定性 fake-CLI fixture（plugins/agent-harness/fakeagentcli/）验收；真实 codex 端到端由 reviewer 本机跑 scripts/verify-real-provider.sh。
+      codex argv：`codex exec --cd <ws> --approve-for-me --skip-git-repo-check --json --color never -- <prompt>`（codex-cli 0.152.1：--approve-for-me 已隐含 workspace-write 沙箱，不再传 -s）。
+      harness_native_id 在 M1.8 是服务端合成的 `<provider>-<run_id>`，非 codex 原生 thread id（该语义留待后续）。
 M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证
       + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED
 ```

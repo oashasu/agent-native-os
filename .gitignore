@@ -12,3 +12,5 @@
 fixtures/sample-java-project/target/
 go.work.sum
 /vibe
+# macOS
+.DS_Store

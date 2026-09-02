@@ -205,12 +205,11 @@ func (r *runRegistry) done(id string)                                   // calle
 
 ## 5. codex invocation (real provider #1)
 
-`codex-cli` ≥ 0.151 is a reviewer/development-machine precondition, verified locally as `0.152.0`; discovery only requires a successful `--version` probe and does not parse or enforce a version number. Non-interactive form:
+`codex-cli` ≥ 0.151 is a reviewer/development-machine precondition, verified locally against `0.152.1`; discovery only requires a successful `--version` probe and does not parse or enforce a version number. Non-interactive form:
 
 ```
 codex exec \
   --cd <workspace_path> \
-  -s workspace-write \
   --approve-for-me \
   --skip-git-repo-check \
   --json \
@@ -219,7 +218,7 @@ codex exec \
 ```
 
 - `--cd` sets the working root (belt-and-braces with `cmd.Dir`).
-- `-s workspace-write` + `--approve-for-me` = headless, may edit files in the workspace, auto-approves through the workspace-write sandbox. (Not `--dangerously-bypass-approvals-and-sandbox` — we keep codex's own sandbox on.)
+- `--approve-for-me` = headless; codex may edit files in the workspace and auto-approves through its own **workspace-write sandbox** (the flag implies that sandbox). We do **not** pass `-s/--sandbox` alongside it: codex-cli 0.152.1 rejects `--sandbox` together with `--approve-for-me` (`the argument '--sandbox <SANDBOX_MODE>' cannot be used with '--approve-for-me'`). We also do not use `--dangerously-bypass-approvals-and-sandbox` — codex's own sandbox stays on. Verified end-to-end by `scripts/verify-real-provider.sh` against codex-cli 0.152.1.
 - `--skip-git-repo-check` because the scratch workspace worktree may not look like a normal repo root to codex.
 - `--json` emits JSONL events to stdout — **stored as opaque lines** (structured parsing is M1.8+/UI, §8 NON-GOAL). `--color never` keeps lines clean.
 - Exit 0 on success, non-zero on failure.
