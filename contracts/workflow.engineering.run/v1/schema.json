@@ -10,6 +10,7 @@
     "properties": {
       "task_id": { "type": "string" },
       "prompt": { "type": "string" },
+      "provider": { "type": "string" },
       "build_command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
       "test_command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
       "base_ref": { "type": "string" },
