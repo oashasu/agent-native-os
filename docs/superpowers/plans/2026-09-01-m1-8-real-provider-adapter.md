@@ -18,16 +18,16 @@
 - **`RealProvider` does not parse codex event semantics** — stdout lines are opaque, even with `--json`.
 - **Real-provider `provider_metadata` is redacted:** exactly `{"provider": <name>, "exit_code": <int|null>}`. Never `bin`, full `args`, env values, credentials, or the prompt. `AgentRun.Prompt` (the existing field) is untouched.
 - **`mock` stays the default everywhere.** `smoke.sh`, `qualify-done-integrity.sh`, `check-arch.sh` are **not** modified. Contract count stays **31**, manifest count **10**.
-- **G1 Kernel Purity:** no task modifies `kernel/`. Check: `git diff --name-only "$BASE" HEAD -- kernel` must be empty.
+- **G1 Kernel Purity:** no task modifies `kernel/`. Check: `git diff --name-only "$BASE" HEAD -- "kernel"` must be empty.
 - **No `docs/M1-DESIGN.md` edit.** The reviewer reconciles §6/§8/§13 post-merge.
 - **Module paths:** kernel `github.com/example/agent-native-microkernel`; plugins `github.com/example/agent-native-os/plugins`; CLI `github.com/example/agent-native-os/cli`.
-- **`go build ./cli/...` may drop `./vibe` in cwd** — `rm -f ./vibe`, do not commit (`.gitignore` has `/vibe`).
-- **Commit trailer** — every commit message ends with exactly:
+- **`go build ./cli/...` may drop `./vibe` in cwd** — `rm -f "./vibe"`, do not commit (`.gitignore` has `/vibe`).
+- **Commit format** — every commit subject must follow the supplied `AGENTS.md` rule: `[中文模块][英文类型][中文摘要]`; commit备注使用中文。Every commit message also ends with exactly:
   ```
   Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
   Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
   ```
-  Summary style: repo convention, English conventional-commits (`feat(m1.8): …`, `test(m1.8): …`). No `AGENTS.md` in this repo. Author `ada <oashasu@gmail.com>` (connector may substitute — known limit).
+  Use a Chinese模块名, an English类型标识 such as `add`, `fix`, or `chore`, and a Chinese摘要. Do not use English conventional-commit subjects. Author `ada <oashasu@gmail.com>` (connector may substitute — known limit).
 
 **Base:** branch `chatgpt/m1-8-real-provider-adapter` from the tarball snapshot commit. Before Task 1: `BASE=$(git rev-parse HEAD)`; use `$BASE` for every G1 check. Do not hardcode a SHA. **`plugins/agent-harness/provider_test.go`'s race fix and this plan + the spec are already committed at `$BASE`** — they will not appear in `git diff "$BASE" HEAD`.
 
@@ -115,6 +115,13 @@ Modified:
 - `cli/vibe/main.go` — `commandWithDeadline`; `agentRun` `-provider`+`-timeout`; `agentCancel` deadline; `workflowRun` `-provider`.
 - `contracts/workflow.engineering.run/v1/schema.json` — `+ "provider"` optional.
 - `scripts/build.sh` — build `.bin/fake-agent-cli`.
+
+Already present at `BASE` and intentionally not changed by the dispatched tasks:
+- `plugins/agent-harness/provider_test.go` — the race-synchronization fix is part of the snapshot; it must not reappear in the implementation diff.
+
+The dispatched diff whitelist contains **22 paths**: 10 new files and 12
+modified files above. The already-present `provider_test.go` is excluded from
+that count and from the final `git diff --name-only "$BASE" HEAD` assertion.
 
 ---
 
@@ -256,10 +263,10 @@ func get(args []string, i int) string {
 
 - [ ] **Step 2: Wire the build**
 
-In `scripts/build.sh`, after the `( cd cli/vibe && … )` block and before `echo "BUILD OK"`, add:
+In `scripts/build.sh`, after the `( cd "cli/vibe" && … )` block and before `echo "BUILD OK"`, add:
 
 ```bash
-( cd plugins/agent-harness/fakeagentcli && go build -o "$OLDPWD/.bin/fake-agent-cli" . )
+( cd "plugins/agent-harness/fakeagentcli" && go build -o "$OLDPWD/.bin/fake-agent-cli" . )
 echo "built fixture: fake-agent-cli"
 ```
 
@@ -267,30 +274,38 @@ echo "built fixture: fake-agent-cli"
 
 Run:
 ```bash
-bash scripts/build.sh >/dev/null && echo BUILD_OK
-.bin/fake-agent-cli --version
-.bin/fake-agent-cli --version-exit 3; echo "exit=$?"
-D=$(mktemp -d); .bin/fake-agent-cli --cd "$D" --write out.txt --line "hello" --emit-bytes 100 --exit 0 -- do a thing; echo "run exit=$?"
-wc -c "$D/out.txt"; cat "$D/out.txt"
+set -euo pipefail
+bash "scripts/build.sh" >/dev/null
+echo BUILD_OK
+".bin/fake-agent-cli" --version
+set +e
+".bin/fake-agent-cli" --version-exit 3
+rc=$?
+set -e
+echo "exit=$rc"
+[ "$rc" -eq 3 ]
+D="$(mktemp -d)"
+".bin/fake-agent-cli" --cd "$D" --write out.txt --line "hello" --emit-bytes 100 --exit 0 -- do a thing
+echo "run exit=$?"
+wc -c "$D/out.txt"
+cat "$D/out.txt"
 ```
 Expected: `BUILD_OK`; `fake-agent-cli 0.0.1`; `exit=3`; `run exit=0`; `out.txt` contains `hello`.
 
 - [ ] **Step 4: Verify `go build ./plugins/...` still green**
 
-Run: `go build ./plugins/... ./cli/... && ( cd kernel && go build ./... ) && echo BUILD_OK`
+Run: `go build "./plugins/..." "./cli/..." && ( cd "kernel" && go build "./..." ) && echo BUILD_OK`
 Expected: `BUILD_OK` (the fixture compiles as part of the `plugins` module).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/agent-harness/fakeagentcli/main.go scripts/build.sh
+rm -f "./vibe"
+git add "plugins/agent-harness/fakeagentcli/main.go" "scripts/build.sh"
 git commit -m "$(cat <<'EOF'
-test(m1.8): fake-agent-cli fixture + build wiring
+[代理适配器][add][新增假CLI及构建接线]
 
-Deterministic stand-in for a real coding CLI (argv only, no env), built
-to .bin/fake-agent-cli. Used by the RealProvider and discovery tests so
-the air-gapped dispatch sandbox never needs a real agent.
+新增仅使用argv的确定性假CLI，由构建脚本输出到`.bin/fake-agent-cli`，供RealProvider和发现测试使用，断网派工环境无需真实Agent。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -379,24 +394,25 @@ func killProcessGroup(cmd *exec.Cmd) {
 
 Run:
 ```bash
-go vet ./plugins/agent-harness/
-GOOS=windows GOARCH=amd64 go build ./plugins/agent-harness/ && echo WINDOWS_BUILD_OK
-go build ./plugins/agent-harness/ && echo UNIX_BUILD_OK
+set -euo pipefail
+go vet "./plugins/agent-harness/"
+build_tmp="$(mktemp -d)"
+trap 'rm -rf "$build_tmp"' EXIT
+GOOS=windows GOARCH=amd64 go build -o "$build_tmp/agent-harness.exe" "./plugins/agent-harness/" && echo WINDOWS_BUILD_OK
+go build -o "$build_tmp/agent-harness" "./plugins/agent-harness/" && echo UNIX_BUILD_OK
 ```
-Expected: `go vet` clean (it will report the new symbols are unused — that's fine, Task 3 uses them; if `vet` fails hard, add a temporary `var _ = realProviderSupported` — but prefer to proceed straight to Task 3). `WINDOWS_BUILD_OK` and `UNIX_BUILD_OK`.
+Expected: `go vet` clean; package-level helper functions may be unused before Task 3 and Go still permits that. `WINDOWS_BUILD_OK` and `UNIX_BUILD_OK`.
 
-Note: if `go vet` / `go build` fails only because the new functions are unused, that is expected until Task 3 — do **not** commit this task alone; instead continue to Task 3 and commit them together. (Go does not error on unused package-level funcs, so the build should pass.)
+Note: do not add placeholder references merely to silence an unused-function warning. If a real compile error appears, continue to Task 3 only after recording its cause; Task 2's platform files are committed independently.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add plugins/agent-harness/real_provider_exec_unix.go plugins/agent-harness/real_provider_exec_other.go
+git add "plugins/agent-harness/real_provider_exec_unix.go" "plugins/agent-harness/real_provider_exec_other.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): platform process-group helpers for RealProvider
+[代理适配器][add][新增进程组平台辅助函数]
 
-startProcess (Setpgid) + killProcessGroup (kill -pid) on unix;
-realProviderSupported()==false + stub on other platforms so a non-unix
-build still compiles and registers no real providers.
+Unix实现startProcess(Setpgid)和killProcessGroup(kill-pid)，其他平台提供realProviderSupported()==false的可编译桩，避免注册真实Provider。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -434,17 +450,25 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// fakeBin resolves the built fixture; `bash scripts/build.sh` must have run.
+// fakeBin resolves the built fixture; `bash "scripts/build.sh"` must have run.
 func fakeBin(t *testing.T) string {
 	t.Helper()
-	// test cwd is the package dir: plugins/agent-harness
-	p, err := filepath.Abs(filepath.Join("..", "..", ".bin", "fake-agent-cli"))
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	// Resolve from this source file, not from the test process working directory.
+	root := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+	p, err := filepath.Abs(filepath.Join(root, ".bin", "fake-agent-cli"))
 	if err != nil || func() bool { _, e := os.Stat(p); return e != nil }() {
 		t.Skipf("fixture not built at %s (run scripts/build.sh)", p)
 	}
@@ -453,17 +477,52 @@ func fakeBin(t *testing.T) string {
 
 func runReal(t *testing.T, p RealProvider, spec RunSpec) RunResult {
 	t.Helper()
+	res, _ := runRealCollect(t, p, spec, "")
+	return res
+}
+
+func runRealWithPID(t *testing.T, pidFile string, p RealProvider, spec RunSpec) RunResult {
+	t.Helper()
+	res, _ := runRealCollect(t, p, spec, pidFile)
+	return res
+}
+
+func startReal(t *testing.T, p RealProvider, spec RunSpec, pidFile string) (context.CancelFunc, <-chan Frame, <-chan RunResult) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	out := make(chan Frame, 256)
 	resCh := make(chan RunResult, 1)
-	go func() { resCh <- p.Run(context.Background(), spec, out) }()
-	for range out { // drain concurrently
+	go func() {
+		defer close(done)
+		resCh <- p.Run(ctx, spec, out)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Errorf("RealProvider cleanup timed out")
+		}
+		killRecordedPID(pidFile)
+	})
+	return cancel, out, resCh
+}
+
+func runRealCollect(t *testing.T, p RealProvider, spec RunSpec, pidFile string) (RunResult, []Frame) {
+	t.Helper()
+	_, out, resCh := startReal(t, p, spec, pidFile)
+	var frames []Frame
+	for f := range out { // drain concurrently
+		// Keep the full stream for tests that assert ordering or truncation.
+		frames = append(frames, f)
 	}
 	select {
 	case r := <-resCh:
-		return r
+		return r, frames
 	case <-time.After(20 * time.Second):
 		t.Fatal("Run did not return")
-		return RunResult{}
+		return RunResult{}, frames
 	}
 }
 
@@ -474,28 +533,39 @@ func tmpl(extra ...string) func(RunSpec) []string {
 	}
 }
 
+func TestCodexArgvIsExact(t *testing.T) {
+	got := codexArgv(RunSpec{WorkspacePath: "/workspace", Prompt: "harden the parser"})
+	want := []string{"exec", "--cd", "/workspace", "-s", "workspace-write", "--approve-for-me", "--skip-git-repo-check", "--json", "--color", "never", "--", "harden the parser"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("codex argv = %#v, want %#v", got, want)
+	}
+}
+
 func TestRealProviderCompletedAndWorkspaceChange(t *testing.T) {
 	bin := fakeBin(t)
 	ws := t.TempDir()
 	p := RealProvider{name: "fake", bin: bin, env: []string{}, argv: tmpl("--write", "Calc.java", "--line", "// hardened", "--exit", "0", "--", "harden")}
-	var frames int
-	out := make(chan Frame, 256)
-	resCh := make(chan RunResult, 1)
-	go func() { resCh <- p.Run(context.Background(), RunSpec{WorkspacePath: ws, Prompt: "harden"}, out) }()
+	res, collected := runRealCollect(t, p, RunSpec{WorkspacePath: ws, Prompt: "harden"}, "")
+	frames := len(collected)
+	sawStdout, sawStderr := false, false
 	last := -1
-	for f := range out {
-		frames++
+	for _, f := range collected {
 		if f.Index <= last {
 			t.Fatalf("Index not monotonic: %d after %d", f.Index, last)
 		}
 		last = f.Index
+		switch f.Kind {
+		case "stdout":
+			sawStdout = true
+		case "stderr":
+			sawStderr = true
+		}
 	}
-	res := <-resCh
 	if res.Status != StatusCompleted {
 		t.Fatalf("status=%s", res.Status)
 	}
-	if frames == 0 {
-		t.Fatal("no frames")
+	if frames == 0 || !sawStdout || !sawStderr {
+		t.Fatalf("frames=%d stdout=%v stderr=%v", frames, sawStdout, sawStderr)
 	}
 	var m map[string]any
 	_ = json.Unmarshal(res.ProviderMeta, &m)
@@ -511,7 +581,9 @@ func TestRealProviderCompletedAndWorkspaceChange(t *testing.T) {
 func TestRealProviderMockKnobsIgnored(t *testing.T) {
 	bin := fakeBin(t)
 	ws := t.TempDir()
-	p := RealProvider{name: "fake", bin: bin, env: []string{}, argv: tmpl("--exit", "0", "--", "x")}
+	// Use the production codex template here; the fake binary ignores the
+	// codex-only flags but still honours --cd/--/prompt.
+	p := RealProvider{name: "fake", bin: bin, env: []string{}, argv: codexArgv}
 	res := runReal(t, p, RunSpec{WorkspacePath: ws, Prompt: "x", MockWriteFile: "should-not-exist.txt", MockWriteContent: "nope\n"})
 	if res.Status != StatusCompleted {
 		t.Fatalf("status=%s", res.Status)
@@ -560,7 +632,7 @@ func TestRealProviderDeadlineTimeout(t *testing.T) {
 	p := RealProvider{name: "fake", bin: bin, env: []string{}, timeout: 50 * time.Millisecond,
 		argv: tmpl("--pid-file", pidFile, "--sleep", "5000", "--exit", "0", "--", "x")}
 	start := time.Now()
-	res := runReal(t, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"})
+	res := runRealWithPID(t, pidFile, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"})
 	if res.Status != StatusTimeout {
 		t.Fatalf("status=%s", res.Status)
 	}
@@ -575,19 +647,34 @@ func TestRealProviderContextCancel(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	p := RealProvider{name: "fake", bin: bin, env: []string{},
 		argv: tmpl("--pid-file", pidFile, "--sleep", "5000", "--exit", "0", "--", "x")}
-	ctx, cancel := context.WithCancel(context.Background())
-	out := make(chan Frame, 64)
-	resCh := make(chan RunResult, 1)
-	go func() { resCh <- p.Run(ctx, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"}, out) }()
-	<-out
+	cancel, out, resCh := startReal(t, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"}, pidFile)
+	select {
+	case <-out:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider emitted no frame")
+	}
 	cancel()
-	go func() {
-		for range out {
-		}
-	}()
+	for range out {
+	}
 	res := <-resCh
 	if res.Status != StatusCancelled {
 		t.Fatalf("status=%s", res.Status)
+	}
+	assertPidGone(t, pidFile)
+}
+
+func TestRealProviderKillsProcessGroup(t *testing.T) {
+	// The direct child is /bin/sh; the sleep descendant proves that the unix
+	// implementation kills the process group, not merely the direct child.
+	pidFile := filepath.Join(t.TempDir(), "child-pid")
+	p := RealProvider{name: "shell", bin: "/bin/sh", env: []string{}, timeout: 500 * time.Millisecond,
+		argv: func(RunSpec) []string{"-c", `/bin/sleep 5 & echo $! > "$1"; wait`, "sh", pidFile}}
+	res := runRealWithPID(t, pidFile, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"})
+	if res.Status != StatusTimeout {
+		t.Fatalf("status=%s", res.Status)
+	}
+	if _, err := os.Stat(pidFile); err != nil {
+		t.Fatalf("descendant did not start: %v", err)
 	}
 	assertPidGone(t, pidFile)
 }
@@ -608,6 +695,7 @@ func TestRealProviderFailClosedOnNilEnvOrArgv(t *testing.T) {
 	for _, p := range []RealProvider{
 		{name: "fake", bin: bin, env: nil, argv: tmpl("--", "x")},
 		{name: "fake", bin: bin, env: []string{}, argv: nil},
+		{name: "fake", bin: bin, env: []string{}, argv: func(RunSpec) []string { return nil }},
 	} {
 		res := runReal(t, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"})
 		if res.Status != StatusFailed || !strings.Contains(string(res.ProviderMeta), `"exit_code":null`) {
@@ -619,11 +707,9 @@ func TestRealProviderFailClosedOnNilEnvOrArgv(t *testing.T) {
 func TestRealProviderOversizedLine(t *testing.T) {
 	bin := fakeBin(t)
 	p := RealProvider{name: "fake", bin: bin, env: []string{}, argv: tmpl("--emit-bytes", "1572864", "--exit", "0", "--", "x")}
-	out := make(chan Frame, 256)
-	resCh := make(chan RunResult, 1)
-	go func() { resCh <- p.Run(context.Background(), RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"}, out) }()
+	res, frames := runRealCollect(t, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"}, "")
 	sawTrunc := false
-	for f := range out {
+	for _, f := range frames {
 		if len(f.Text) > maxFrameText {
 			t.Fatalf("frame text %d > cap", len(f.Text))
 		}
@@ -631,9 +717,40 @@ func TestRealProviderOversizedLine(t *testing.T) {
 			sawTrunc = true
 		}
 	}
-	res := <-resCh
 	if res.Status != StatusCompleted || !sawTrunc {
 		t.Fatalf("status=%s sawTrunc=%v", res.Status, sawTrunc)
+	}
+}
+
+func TestRealProviderExactLimitLineIsNotTruncated(t *testing.T) {
+	bin := fakeBin(t)
+	p := RealProvider{name: "fake", bin: bin, env: []string{}, argv: tmpl("--emit-bytes", strconv.Itoa(maxFrameText), "--exit", "0", "--", "x")}
+	res, frames := runRealCollect(t, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"}, "")
+	sawExact := false
+	for _, f := range frames {
+		if len(f.Text) == maxFrameText {
+			sawExact = true
+			if strings.HasSuffix(f.Text, truncMark) {
+				t.Fatal("exact-limit line was marked truncated")
+			}
+		}
+	}
+	if res.Status != StatusCompleted || !sawExact {
+		t.Fatalf("status=%s sawExact=%v", res.Status, sawExact)
+	}
+}
+
+func killRecordedPID(pidFile string) {
+	if pidFile == "" {
+		return
+	}
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err == nil && pid > 0 {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 }
 
@@ -648,8 +765,11 @@ func assertPidGone(t *testing.T, pidFile string) {
 		return
 	}
 	for i := 0; i < 100; i++ {
-		if syscall.Kill(pid, 0) != nil { // ESRCH → gone
-			return
+		if err := syscall.Kill(pid, 0); err != nil {
+			if err == syscall.ESRCH { // gone
+				return
+			}
+			t.Fatalf("cannot probe pid %d: %v", pid, err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -657,11 +777,26 @@ func assertPidGone(t *testing.T, pidFile string) {
 }
 ```
 
-Test imports: `context encoding/json os path/filepath strconv strings syscall testing time`.
+Test imports: `context encoding/json os path/filepath reflect runtime strconv strings syscall testing time`.
+
+The exact-argv test is required because the fake-run tests inject their own
+argv template and therefore cannot catch a regression in `codexArgv`. The
+process-group test uses `/bin/sh` with a `/bin/sleep` descendant and requires
+the descendant pid file to exist before asserting that cancellation removes
+the whole group; a direct-child-only test would still pass with a no-op group
+kill followed by the 3 s direct-child fallback.
 
 - [ ] **Step 2: Run — verify it fails to compile (RealProvider undefined)**
 
-Run: `go test ./plugins/agent-harness/ -run TestRealProvider 2>&1 | head -5`
+Run:
+```bash
+set +e
+out="$(go test "./plugins/agent-harness/" -run TestRealProvider 2>&1)"
+rc=$?
+set -e
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected the pre-implementation test build to fail"; exit 1; }
+```
 Expected: build failure — `undefined: RealProvider` / `undefined: maxFrameText`.
 
 - [ ] **Step 3: Implement `real_provider.go`**
@@ -733,6 +868,9 @@ func (p RealProvider) Run(ctx context.Context, spec RunSpec, out chan<- Frame) R
 		return failClosed(p.name)
 	}
 	args := p.argv(spec)
+	if args == nil {
+		return failClosed(p.name)
+	}
 
 	runCtx := ctx
 	if p.timeout > 0 {
@@ -810,36 +948,39 @@ func (p RealProvider) Run(ctx context.Context, spec RunSpec, out chan<- Frame) R
 		defer readersWG.Done()
 		br := bufio.NewReader(r)
 		var acc []byte
-		flush := func() {
+		flush := func() bool {
 			if len(acc) == 0 {
-				return
+				return true
 			}
 			t := strings.TrimSuffix(string(acc), "\r")
 			acc = acc[:0]
-			emit(kind, t)
+			return emit(kind, t)
 		}
 		for {
 			chunk, isPrefix, err := br.ReadLine()
-			if len(chunk) > 0 {
-				room := maxFrameText - len(acc)
-				if room > len(chunk) {
-					room = len(chunk)
+			room := maxFrameText - len(acc)
+			if room > len(chunk) {
+				room = len(chunk)
+			}
+			if room > 0 {
+				acc = append(acc, chunk[:room]...)
+			}
+			if len(chunk) > room {
+				// The extra bytes prove that this logical line exceeds the cap.
+				// Do not mark merely because ReadLine returned isPrefix at the
+				// exact cap: the next read may contain only the line terminator.
+				acc = acc[:maxFrameText-len(truncMark)]
+				acc = append(acc, truncMark...)
+				if !emit(kind, string(acc)) {
+					return
 				}
-				if room > 0 {
-					acc = append(acc, chunk[:room]...)
-				}
-				if len(acc) >= maxFrameText && isPrefix {
-					// Cap and mark; drop the rest of this logical line.
-					acc = acc[:maxFrameText-len(truncMark)]
-					acc = append(acc, truncMark...)
-					emit(kind, string(acc))
-					acc = acc[:0]
-					// discard remaining prefix fragments
-					for isPrefix {
-						_, isPrefix, err = br.ReadLine()
-						if err != nil {
-							break
-						}
+				acc = acc[:0]
+				// Discard remaining prefix fragments, including the current
+				// fragment's unretained bytes.
+				for isPrefix {
+					_, isPrefix, err = br.ReadLine()
+					if err != nil {
+						break
 					}
 				}
 			}
@@ -856,7 +997,9 @@ func (p RealProvider) Run(ctx context.Context, spec RunSpec, out chan<- Frame) R
 				return
 			}
 			if !isPrefix {
-				flush()
+				if !flush() {
+					return
+				}
 			}
 		}
 	}
@@ -935,29 +1078,25 @@ func mapStatus(ctx context.Context, name string, err error) RunResult {
 
 Run:
 ```bash
-bash scripts/build.sh >/dev/null
-go test ./plugins/agent-harness/ -run TestRealProvider -v 2>&1 | tail -20
-go test -race ./plugins/agent-harness/ -run TestRealProvider 2>&1 | tail -3
+bash "scripts/build.sh" >/dev/null
+go test "./plugins/agent-harness/" -run 'Test(CodexArgv|RealProvider)' -v
+go test -race "./plugins/agent-harness/" -run 'Test(CodexArgv|RealProvider)'
 ```
 Expected: all `TestRealProvider*` PASS; `-race` clean.
 
 - [ ] **Step 5: 致残对照 — invert status mapping, watch red, restore**
 
-In `mapStatus`, delete the `if ee, ok := err.(*exec.ExitError); ok { … }` block. Run `go test ./plugins/agent-harness/ -run TestRealProviderNonZeroExitFails`. Expected: FAIL. `git checkout plugins/agent-harness/real_provider.go`; re-run → PASS.
+In `mapStatus`, temporarily delete the `if ee, ok := err.(*exec.ExitError); ok { … }` block. Run `go test "./plugins/agent-harness/" -run TestRealProviderNonZeroExitFails`; the test must FAIL. Restore the exact original block with `apply_patch`, then re-run the test and require PASS. Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/agent-harness/real_provider.go plugins/agent-harness/real_provider_test.go plugins/agent-harness/real_provider_exec_unix.go plugins/agent-harness/real_provider_exec_other.go
+rm -f "./vibe"
+git add "plugins/agent-harness/real_provider.go" "plugins/agent-harness/real_provider_test.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): RealProvider — subprocess-driven Provider
+[代理适配器][add][新增RealProvider子进程执行适配器]
 
-os.Pipe write-ends on cmd (not StdoutPipe/Wait — Go 1.19 deadlock risk);
-bufio ReadLine with 1 MiB frame cap + truncation; runCtx-driven status
-mapping (timeout/cancel win over exit code); process-group kill with a
-bounded 3s grace; fail-closed on nil env/argv; provider_metadata redacted
-to {provider, exit_code}. codexArgv per spec §5.
+使用os.Pipe写端连接子进程，规避Go1.19的StdoutPipe等待死锁；使用bufio.ReadLine和1MiB帧上限；按runCtx映射状态并执行进程组终止；非法env/argv安全失败；provider_metadata仅保留provider和exit_code；按§5实现codexArgv。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -994,7 +1133,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func writeScript(t *testing.T, dir, name, body string) {
@@ -1010,6 +1153,19 @@ func withTemplate(t *testing.T, name string) {
 	t.Helper()
 	argvTemplates[name] = func(s RunSpec) []string { return []string{"--version-exit", "0"} }
 	t.Cleanup(func() { delete(argvTemplates, name) })
+}
+
+func TestCandidatesFromEnv(t *testing.T) {
+	t.Setenv("VIBE_AGENT_PROVIDERS", " codex, good, codex, , foo ")
+	got := candidatesFromEnv()
+	if strings.Join(got, ",") != "codex,good,foo" {
+		t.Fatalf("candidates=%v", got)
+	}
+	t.Setenv("VIBE_AGENT_PROVIDERS", " , ")
+	got = candidatesFromEnv()
+	if len(got) != 1 || got[0] != "codex" {
+		t.Fatalf("empty override candidates=%v", got)
+	}
 }
 
 func TestDiscoveryRegistersGoodCandidate(t *testing.T) {
@@ -1052,7 +1208,10 @@ func TestDiscoverySkipsNonZeroVersion(t *testing.T) {
 
 func TestDiscoverySkipsSlowVersion(t *testing.T) {
 	dir := t.TempDir()
-	writeScript(t, dir, "slow", `sleep 10; exit 0`)
+	pidFile := filepath.Join(dir, "probe.pid")
+	childFile := filepath.Join(dir, "probe-child.pid")
+	writeScript(t, dir, "slow", `echo $$ > "`+pidFile+`"; sleep 10 & child=$!; echo "$child" > "`+childFile+`"; wait; exit 0`)
+	t.Cleanup(func() { killProbePID(pidFile); killProbePID(childFile) })
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	withTemplate(t, "slow")
 	var logw bytes.Buffer
@@ -1063,9 +1222,17 @@ func TestDiscoverySkipsSlowVersion(t *testing.T) {
 		if _, ok := m["slow"]; ok {
 			t.Fatal("slow should time out")
 		}
-	case <-timeAfter(8):
+	case <-time.After(8 * time.Second):
 		t.Fatal("discovery did not bound the slow probe")
 	}
+	if _, err := os.Stat(pidFile); err != nil {
+		t.Fatalf("slow probe did not start: %v", err)
+	}
+	if _, err := os.Stat(childFile); err != nil {
+		t.Fatalf("slow probe descendant did not start: %v", err)
+	}
+	assertProbePidGone(t, pidFile)
+	assertProbePidGone(t, childFile)
 }
 
 func TestDiscoverySkipsNoTemplate(t *testing.T) {
@@ -1077,6 +1244,10 @@ func TestDiscoverySkipsNoTemplate(t *testing.T) {
 }
 
 func TestDiscoverySkipsMockCandidate(t *testing.T) {
+	dir := t.TempDir()
+	writeScript(t, dir, "mock", `echo "mock 1.0"; exit 0`)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	withTemplate(t, "mock")
 	var logw bytes.Buffer
 	m := discoverProviders([]string{"mock"}, []string{"PATH"}, &logw)
 	if _, ok := m["mock"].(MockProvider); !ok {
@@ -1088,12 +1259,17 @@ func TestDiscoverySkipsMockCandidate(t *testing.T) {
 }
 
 func TestDiscoveryNothingOnStdout(t *testing.T) {
-	// discoverProviders must write only to logw. Capture os.Stdout.
+	// Both probe output and discovery logs must stay off the protocol stdout.
+	dir := t.TempDir()
+	writeScript(t, dir, "noisy", `echo noisy; echo noisy-err >&2; exit 0`)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	withTemplate(t, "noisy")
 	r, w, _ := os.Pipe()
 	old := os.Stdout
+	t.Cleanup(func() { os.Stdout = old; _ = r.Close(); _ = w.Close() })
 	os.Stdout = w
 	var logw bytes.Buffer
-	_ = discoverProviders([]string{"ghost"}, []string{"PATH"}, &logw)
+	_ = discoverProviders([]string{"noisy"}, []string{"PATH"}, &logw)
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
@@ -1120,14 +1296,69 @@ func TestAllowlistedEnvDenylist(t *testing.T) {
 	}
 }
 
+func TestAllowlistEnvOverrideStillHonoursDenylist(t *testing.T) {
+	t.Setenv("VIBE_AGENT_ENV_ALLOWLIST", "FAKE_AGENT_X,PATH")
+	t.Setenv("FAKE_AGENT_X", "leak")
+	gotNames := allowlistFromEnv()
+	if len(gotNames) != 2 || gotNames[0] != "FAKE_AGENT_X" || gotNames[1] != "PATH" {
+		t.Fatalf("override names=%v", gotNames)
+	}
+	got := allowlistedEnv(gotNames)
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "FAKE_AGENT_X=") {
+		t.Fatalf("denylist bypassed: %q", joined)
+	}
+}
+
 func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }
+
+func killProbePID(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err == nil && pid > 0 {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
+func assertProbePidGone(t *testing.T, path string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pid file %s: %v", path, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("bad pid file %s: %q", path, b)
+	}
+	for i := 0; i < 100; i++ {
+		if err := syscall.Kill(pid, 0); err != nil {
+			if err == syscall.ESRCH {
+				return
+			}
+			t.Fatalf("cannot probe pid %d: %v", pid, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("pid %d still alive", pid)
+}
 ```
 
-Add a small `timeAfter` helper (or inline `time.After(time.Duration(n)*time.Second)` with a `time` import). Prefer inline `time.After`.
+The slow-probe test uses the inline `time.After(8 * time.Second)` bound; do not leave an undefined `timeAfter` placeholder in the committed test.
 
 - [ ] **Step 2: Run — fails (discoverProviders undefined)**
 
-Run: `go test ./plugins/agent-harness/ -run 'TestDiscovery|TestAllowlisted' 2>&1 | head -5`
+Run:
+```bash
+set +e
+out="$(go test "./plugins/agent-harness/" -run 'TestDiscovery|TestAllowlisted' 2>&1)"
+rc=$?
+set -e
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected the pre-implementation test build to fail"; exit 1; }
+```
 Expected: build failure — `undefined: discoverProviders`.
 
 - [ ] **Step 3: Implement `discovery.go`**
@@ -1143,6 +1374,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -1221,9 +1453,14 @@ func discoverProviders(candidates, envAllowlist []string, logw io.Writer) map[st
 			logf("no argv template for %q; skipped", name)
 			continue
 		}
-		abs, err := exec.LookPath(name)
+		bin, err := exec.LookPath(name)
 		if err != nil {
 			logf("provider %q not on PATH; skipped", name)
+			continue
+		}
+		abs, err := filepath.Abs(bin)
+		if err != nil {
+			logf("provider %q path resolution failed: %v; skipped", name, err)
 			continue
 		}
 		if err := probeVersion(abs, env); err != nil {
@@ -1275,29 +1512,24 @@ func probeVersion(bin string, env []string) error {
 
 Run:
 ```bash
-go test ./plugins/agent-harness/ -run 'TestDiscovery|TestAllowlisted' -v 2>&1 | tail -15
-go test -race ./plugins/agent-harness/ 2>&1 | tail -3
+go test "./plugins/agent-harness/" -run 'TestDiscovery|TestAllowlisted' -v
+go test -race "./plugins/agent-harness/"
 ```
 Expected: all pass; `-race` clean.
 
 - [ ] **Step 5: 致残 — drop the denylist**
 
-In `allowlistedEnv`, delete the `if denied(n) { continue }` line. Run `go test ./plugins/agent-harness/ -run TestAllowlistedEnvDenylist`. Expected: FAIL. Restore, re-run PASS.
+In `allowlistedEnv`, temporarily delete the `if denied(n) { continue }` line. Run `go test "./plugins/agent-harness/" -run 'TestAllowlistedEnvDenylist|TestAllowlistEnvOverrideStillHonoursDenylist'`; the tests must FAIL. Restore with `apply_patch`, then re-run and require PASS. Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/agent-harness/discovery.go plugins/agent-harness/discovery_test.go
+rm -f "./vibe"
+git add "plugins/agent-harness/discovery.go" "plugins/agent-harness/discovery_test.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): runtime provider discovery (codex)
+[代理适配器][add][新增运行时Provider发现]
 
-discoverProviders seeds mock, then for each templated candidate on PATH
-runs a bounded `--version` probe (os.DevNull, not io.Discard) and
-registers a RealProvider. "mock" is reserved; untemplated names cannot
-be injected; a failed probe is a skipped provider, never a startup
-failure. Env allowlist with a non-overridable FAKE_AGENT_*/VIBE_* denylist.
-Logs to logw (stderr) only.
+discoverProviders保留mock，对有argv模板且位于PATH的候选执行有界`--version`探测并注册RealProvider；mock保留名、无模板候选不可注入、探测失败仅跳过；环境白名单带不可覆盖的FAKE_AGENT_*/VIBE_*拒绝表；日志只写logw。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -1326,6 +1558,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -1336,13 +1569,30 @@ func TestRunRegistryStopCancelsOnceKeepsEntry(t *testing.T) {
 	done := make(chan struct{})
 	r.register("a", func() { atomic.AddInt32(&calls, 1) }, done)
 
-	d1, live1 := r.stop("a")
-	d2, live2 := r.stop("a")
-	if !live1 || !live2 {
-		t.Fatal("stop should stay live until done()")
+	type result struct {
+		done <-chan struct{}
+		live bool
 	}
-	if d1 != d2 {
-		t.Fatal("same done chan expected")
+	start := make(chan struct{})
+	results := make(chan result, 32)
+	doneRO := (<-chan struct{})(done)
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			d, live := r.stop("a")
+			results <- result{done: d, live: live}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	for got := range results {
+		if !got.live || got.done != doneRO {
+			t.Fatalf("concurrent stop result: live=%v done=%v", got.live, got.done)
+		}
 	}
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Fatalf("cancel called %d times", calls)
@@ -1364,7 +1614,16 @@ func TestRunRegistryMissingID(t *testing.T) {
 
 - [ ] **Step 2: Run — fails**
 
-Run: `go test ./plugins/agent-harness/ -run TestRunRegistry 2>&1 | head -5` → `undefined: newRunRegistry`.
+Run:
+```bash
+set +e
+out="$(go test "./plugins/agent-harness/" -run TestRunRegistry 2>&1)"
+rc=$?
+set -e
+printf '%s\n' "$out"
+[ "$rc" -ne 0 ] || { echo "expected the pre-implementation test build to fail"; exit 1; }
+```
+Expected: `undefined: newRunRegistry`.
 
 - [ ] **Step 3: Implement `runreg.go`**
 
@@ -1420,19 +1679,17 @@ func (r *runRegistry) done(id string) {
 
 - [ ] **Step 4: Run green**
 
-Run: `go test ./plugins/agent-harness/ -run TestRunRegistry -v && go test -race ./plugins/agent-harness/ -run TestRunRegistry`
+Run: `go test "./plugins/agent-harness/" -run TestRunRegistry -v && go test -race "./plugins/agent-harness/" -run TestRunRegistry`
 Expected: PASS, race clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/agent-harness/runreg.go plugins/agent-harness/runreg_test.go
+git add "plugins/agent-harness/runreg.go" "plugins/agent-harness/runreg_test.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): run registry for live agent.run.cancel
+[代理适配器][add][新增运行中任务注册表]
 
-run_id -> (cancelFunc, done). stop() cancels once and keeps the entry
-until the run goroutine calls done(), so concurrent cancels join the
-same live run.
+run_id映射到cancelFunc和done；stop()只取消一次并保留entry直到运行协程调用done()，并发取消请求加入同一个运行。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -1471,7 +1728,7 @@ In `handlers.go`:
 func agentRunHandler(base runDeps) pluginhost.ContextHandler {
 	return func(rc *pluginhost.RequestContext, e protocol.Envelope) (any, *protocol.Error) {
 		var q agentRunRequest
-		if err := json.Unmarshal(e.Payload, &q); err != nil || q.WorkContextID == "" || q.WorkspacePath == "" || q.Prompt == "" {
+		if err := json.Unmarshal(e.Payload, &q); err != nil {
 			return nil, &protocol.Error{Code: "INVALID", Message: "work_context_id, workspace_path and prompt are required"}
 		}
 		out := make(chan any, 64)
@@ -1486,6 +1743,9 @@ func agentRunHandler(base runDeps) pluginhost.ContextHandler {
 }
 
 func startAgentRun(ctx context.Context, base runDeps, e protocol.Envelope, q agentRunRequest, out chan any) (AgentRun, *protocol.Error) {
+	if q.WorkContextID == "" || q.WorkspacePath == "" || q.Prompt == "" {
+		return AgentRun{}, &protocol.Error{Code: "INVALID", Message: "work_context_id, workspace_path and prompt are required"}
+	}
 	name := q.Provider
 	if name == "" {
 		name = base.DefaultProvider
@@ -1611,31 +1871,27 @@ Add `"os"` if not imported (it is).
 
 Run:
 ```bash
-go build ./plugins/... ./cli/... && echo BUILD_OK
-go test ./plugins/agent-harness/ -v 2>&1 | tail -25
-go test -race ./plugins/agent-harness/ 2>&1 | tail -3
+go build "./plugins/..." "./cli/..." && echo BUILD_OK
+go test "./plugins/agent-harness/" -v
+go test -race "./plugins/agent-harness/"
 ```
-Expected: `BUILD_OK`; all agent-harness tests pass (the old `TestCancelHandlerMarksRunCancelled` will fail to compile until Task 7 changes `cancelHandler`'s signature — that is expected; note it and proceed to Task 7, committing Tasks 6+7 requires 6 to at least build. If `cancelHandler(s)` still compiles because you have not touched it yet, the old test stays green here.)
-
-Actually: **do not change `cancelHandler` in this task.** Task 6 leaves `cancelHandler(s *Store)` and its wiring untouched, so everything compiles and all existing tests pass. Task 7 changes it.
+Expected: `BUILD_OK`; all agent-harness tests pass. Task 6 must leave
+`cancelHandler(s *Store)` and its wiring untouched; Task 7 changes that
+signature and updates the old cancel test.
 
 - [ ] **Step 5: 致残 — move the unknown-provider check after RecordStarted**
 
-In `startAgentRun`, move the `prov, ok := …; if !ok { return INVALID }` block to just after `RecordStarted`. Run `go test ./plugins/agent-harness/ -run TestStartAgentRunUnknownProviderNoRecord`. Expected: FAIL (orphan record). Restore, re-run PASS.
+In `startAgentRun`, temporarily move the `prov, ok := …; if !ok { return INVALID }` block to just after `RecordStarted`. Run `go test "./plugins/agent-harness/" -run TestStartAgentRunUnknownProviderNoRecord`; the test must FAIL because an orphan record appears. Restore with `apply_patch`, then re-run and require PASS. Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/agent-harness/handlers.go plugins/agent-harness/handlers_test.go plugins/agent-harness/main.go
+rm -f "./vibe"
+git add "plugins/agent-harness/handlers.go" "plugins/agent-harness/handlers_test.go" "plugins/agent-harness/main.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): provider selection in agent.run
+[代理适配器][add][接入按运行选择Provider]
 
-runDeps carries a Providers map + DefaultProvider + run registry; the
-looked-up provider is passed into runOnce. Empty provider -> mock;
-unknown provider -> INVALID before any store write. startAgentRun helper
-keeps deterministic handler tests off a fake RequestContext. main.go
-wires discoverProviders.
+runDeps携带Providers、DefaultProvider和运行注册表；查找到的Provider显式传给runOnce；空provider使用mock；未知provider在任何存储写入前返回INVALID；startAgentRun使确定性测试无需伪造RequestContext；main.go接入discoverProviders。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -1685,17 +1941,21 @@ Change to:
 
 - [ ] **Step 2: `session_test.go` — bounded mirror-cancel regression**
 
-Add:
+Add the `time` import (`context` is already present), then add:
 
 ```go
 func TestRunProviderStopsMirroringOnCancel(t *testing.T) {
 	// A provider that emits one frame, then blocks until ctx is done.
-	prov := blockingProvider{}
+	prov := blockingProvider{emitted: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	mirror := make(chan any) // unbuffered, no consumer
 	doneCh := make(chan Transcript, 1)
 	go func() { doneCh <- runProvider(ctx, prov, RunSpec{Prompt: "p"}, mirror) }()
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-prov.emitted:
+	case <-time.After(1 * time.Second):
+		t.Fatal("blocking provider did not emit")
+	}
 	cancel()
 	select {
 	case <-doneCh:
@@ -1704,12 +1964,15 @@ func TestRunProviderStopsMirroringOnCancel(t *testing.T) {
 	}
 }
 
-type blockingProvider struct{}
+type blockingProvider struct {
+	emitted chan struct{}
+}
 
 func (blockingProvider) Name() string { return "blocking" }
-func (blockingProvider) Run(ctx context.Context, _ RunSpec, out chan<- Frame) RunResult {
+func (p blockingProvider) Run(ctx context.Context, _ RunSpec, out chan<- Frame) RunResult {
 	defer close(out)
 	out <- Frame{Kind: "stdout", Text: "one", Index: 1}
+	close(p.emitted)
 	<-ctx.Done()
 	return RunResult{Status: StatusCancelled}
 }
@@ -1717,7 +1980,7 @@ func (blockingProvider) Run(ctx context.Context, _ RunSpec, out chan<- Frame) Ru
 
 - [ ] **Step 3: Run — the new test fails on the old 2 s mirror**
 
-If you kept Step 1: it passes. To see it bite, temporarily revert Step 1's `<-ctx.Done()` line, run `go test ./plugins/agent-harness/ -run TestRunProviderStopsMirroringOnCancel` → FAIL (~2 s). Restore Step 1, re-run → PASS (<1 s).
+If you kept Step 1: it passes. To see it bite, temporarily remove Step 1's `<-ctx.Done()` case, run `go test "./plugins/agent-harness/" -run TestRunProviderStopsMirroringOnCancel` → FAIL (~2 s). Restore the case with `apply_patch`, then re-run and require PASS (<1 s). Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 4: Rewrite `cancelHandler`**
 
@@ -1798,7 +2061,10 @@ Add:
 func TestLiveCancelStopsProviderThenPersists(t *testing.T) {
 	dir := t.TempDir()
 	env := fencedEnv(t, dir)
-	s, _ := Load(dir)
+	s, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runs := newRunRegistry()
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	bin := fakeBin(t)
@@ -1821,11 +2087,16 @@ func TestLiveCancelStopsProviderThenPersists(t *testing.T) {
 		}
 	}()
 	// wait for the pid file
+	started := false
 	for i := 0; i < 100; i++ {
 		if _, err := os.Stat(pidFile); err == nil {
+			started = true
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if !started {
+		t.Fatal("fake provider did not start; live cancel path was not exercised")
 	}
 	env.Payload = protocol.NewPayload(map[string]string{"agent_run_id": ar.ID})
 	res, perr := cancelHandler(s, runs)(env)
@@ -1847,32 +2118,26 @@ func TestLiveCancelStopsProviderThenPersists(t *testing.T) {
 - [ ] **Step 7: Run**
 
 ```bash
-bash scripts/build.sh >/dev/null
-go build ./plugins/... ./cli/... && echo BUILD_OK
-go test ./plugins/agent-harness/ -v 2>&1 | tail -25
-go test -race ./plugins/agent-harness/ 2>&1 | tail -3
+bash "scripts/build.sh" >/dev/null
+go build "./plugins/..." "./cli/..." && echo BUILD_OK
+go test "./plugins/agent-harness/" -v
+go test -race "./plugins/agent-harness/"
 ```
 Expected: `BUILD_OK`; all pass; `-race` clean.
 
 - [ ] **Step 8: 致残 — drop the `<-done` wait**
 
-In `cancelHandler`'s live branch, replace the `select { case <-done: … case <-time.After(30s): … }` with an immediate `final, _ := s.GetByID(q.AgentRunID); return map[string]any{"agent_run": final}, nil`. Run `go test ./plugins/agent-harness/ -run TestLiveCancelStopsProviderThenPersists`. Expected: FAIL (status still RUNNING / RawSessionRef empty). Restore, re-run PASS.
+In `cancelHandler`'s live branch, temporarily replace the `select { case <-done: … case <-time.After(30s): … }` with an immediate `final, _ := s.GetByID(q.AgentRunID); return map[string]any{"agent_run": final}, nil`. Run `go test "./plugins/agent-harness/" -run TestLiveCancelStopsProviderThenPersists`; the test must FAIL (status still RUNNING / RawSessionRef empty). Restore with `apply_patch`, then re-run and require PASS. Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/agent-harness/handlers.go plugins/agent-harness/handlers_test.go plugins/agent-harness/main.go plugins/agent-harness/session.go plugins/agent-harness/session_test.go
+rm -f "./vibe"
+git add "plugins/agent-harness/handlers.go" "plugins/agent-harness/handlers_test.go" "plugins/agent-harness/main.go" "plugins/agent-harness/session.go" "plugins/agent-harness/session_test.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): live agent.run.cancel — stop the provider, then record
+[代理适配器][fix][实现运行中任务取消]
 
-cancelHandler(s, runs): live path cancels the run context, waits up to
-30s for the run goroutine to persist the terminal record via the
-existing agent.run.completed op, returns it (natural-completion race:
-runOnce is the sole writer). Not-live path (post-restart) falls back to
-a fenced agent.run.cancelled. runProvider mirror select gains
-<-ctx.Done() so a stalled stream consumer can't delay the terminal
-record.
+cancelHandler(s,runs)在活跃路径取消运行上下文，最多等待30秒让运行协程通过既有agent.run.completed写入终态并返回；自然完成竞争由runOnce单写者处理；非活跃路径回退到带围栏的agent.run.cancelled；runProvider镜像选择加入<-ctx.Done()，避免停滞消费者延迟终态写入。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -1980,26 +2245,23 @@ func TestAgentRunPayloadCarriesProvider(t *testing.T) {
 - [ ] **Step 5: Run**
 
 ```bash
-go test ./plugins/engineering-workflow/ -v 2>&1 | tail -20
+go test "./plugins/engineering-workflow/" -v
 ```
 Expected: all pass, including the two new tests and the existing `TestRunPipeline*` / `TestRunHandler*`.
 
 - [ ] **Step 6: 致残 — hard-code the provider in `agentRunPayload`**
 
-Change `"provider": provider` to `"provider": "mock"` in `agentRunPayload`. Run `go test ./plugins/engineering-workflow/ -run 'TestAgentRunPayloadCarriesProvider|TestRunPipelineForwardsProvider'`. Expected: FAIL (the payload test; the pipeline test still passes because it stubs `AgentRun`). Restore, re-run PASS.
+Change `"provider": provider` to `"provider": "mock"` in `agentRunPayload`. Run `go test "./plugins/engineering-workflow/" -run 'TestAgentRunPayloadCarriesProvider|TestRunPipelineForwardsProvider'`. The payload test must FAIL (the pipeline test still passes because it stubs `AgentRun`). Restore with `apply_patch`, then re-run and require PASS. Do not use `git checkout`/`git restore` for the temporary mutation.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-rm -f ./vibe
-git add plugins/engineering-workflow/
+rm -f "./vibe"
+git add "plugins/engineering-workflow/pipeline.go" "plugins/engineering-workflow/handlers.go" "plugins/engineering-workflow/pipeline_test.go" "plugins/engineering-workflow/handlers_test.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): workflow forwards an optional provider to agent.run
+[工程工作流][add][透传Provider选择]
 
-caps.AgentRun gains a leading provider arg; RunRequest.Provider (empty ->
-"mock"); realCaps builds the agent.run payload via agentRunPayload so a
-hard-coded value is caught by a direct payload test, not only the
-fake-caps pipeline test.
+caps.AgentRun增加首个provider参数；RunRequest.Provider为空时使用mock；realCaps通过agentRunPayload构造agent.run载荷，直接载荷测试可捕获硬编码值。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -2024,7 +2286,7 @@ In `contracts/workflow.engineering.run/v1/schema.json`, add to `request.properti
 
 - [ ] **Step 2: contract check**
 
-Run: `python3 scripts/check-contracts.py --root contracts`
+Run: `python3 "scripts/check-contracts.py" --root "contracts"`
 Expected: `CONTRACT CHECK: PASSED (31 contracts, …)` — count unchanged (an added optional property is not a new contract).
 
 - [ ] **Step 3: `cli/vibe/main.go` — `commandWithDeadline` + flags**
@@ -2057,6 +2319,20 @@ In `agentRun`: add flags and use the deadline:
 	req := commandWithDeadline("agent.run", payload, *timeout)
 ```
 
+Set `pollUntil := time.Now().Add(*timeout)` before calling `invokeStream`, then
+replace `agentRun`'s existing fixed `for i := 0; i < 50; i++` terminal-status
+poll with `for time.Now().Before(pollUntil)`. Change `fetchAgentRun` to accept
+that absolute deadline and put it in the `agent.run.get` query envelope; call
+it as `fetchAgentRun(socket, identity, token, out.AgentRun.ID, pollUntil)` so a
+query started near expiry cannot silently fall back to the old unbounded query
+deadline.
+The real provider can exceed 5 seconds during blob persistence after the
+stream closes; the new `-timeout` must bound that final poll as well. Keep the
+existing `time.Sleep(100 * time.Millisecond)` cadence and return the existing
+timeout error after the deadline.
+
+Change the helper signature from `fetchAgentRun(socket, identity, token, runID string)` to `fetchAgentRun(socket, identity, token, runID string, deadline time.Time)`, add `Deadline: deadline.Format(time.RFC3339Nano)` to its existing query envelope, and leave the existing invoke/decode body unchanged.
+
 In `agentCancel`: use a longer deadline than the plugin's 30 s live-cancel wait:
 
 ```go
@@ -2075,23 +2351,20 @@ In `workflowRun`: add `provider := fs.String("provider", "mock", "agent provider
 
 Run:
 ```bash
-go build ./cli/... && echo BUILD_OK
-rm -f ./vibe
-go vet ./cli/...
+go build "./cli/..." && echo BUILD_OK
+rm -f "./vibe"
+go vet "./cli/..."
 ```
 Expected: `BUILD_OK`, vet clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add contracts/workflow.engineering.run/v1/schema.json cli/vibe/main.go
+git add "contracts/workflow.engineering.run/v1/schema.json" "cli/vibe/main.go"
 git commit -m "$(cat <<'EOF'
-feat(m1.8): optional provider on workflow.engineering.run + vibe flags
+[命令与契约][add][增加Provider参数和命令期限]
 
-Schema gains an optional request `provider` (count still 31).
-commandWithDeadline; `vibe agent run -provider -timeout`; `vibe agent
-cancel` uses a 40s deadline so it outlives the plugin's 30s live-cancel
-wait; `vibe workflow run -provider`.
+工作流契约增加可选provider且契约数保持31；增加commandWithDeadline、vibe agent run的-provider和-timeout、vibe agent cancel的40秒期限、vibe workflow run的-provider。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -2114,82 +2387,98 @@ Create `scripts/verify-real-provider.sh` (`chmod +x`):
 #!/usr/bin/env bash
 # M1.8 real-provider check. NOT part of any automated gate. Reviewer runs it
 # on a machine with codex installed and authenticated:
-#   VIBE_REAL_PROVIDER=codex bash scripts/verify-real-provider.sh
+#   VIBE_REAL_PROVIDER=codex bash "scripts/verify-real-provider.sh"
 set -euo pipefail
 [ "${VIBE_REAL_PROVIDER:-}" = "codex" ] || { echo "SKIP: set VIBE_REAL_PROVIDER=codex to run"; exit 0; }
 cd "$(dirname "$0")/.."
-source scripts/lib/kernel-harness.sh
+source "scripts/lib/kernel-harness.sh"
 build_bins
 
 command -v codex >/dev/null || { echo "FAIL: codex not on PATH"; exit 1; }
 
 SRC="$DATA/scratch-repo"; mkdir -p "$SRC"
 git -C "$SRC" -c init.defaultBranch=main init -q
-printf 'class Calc { int add(int a,int b){return a+b;} }\n' > "$SRC/Calc.java"
+printf 'class Calc {\n    int add(int a, int b) { return a + b; }\n}\n' > "$SRC/Calc.java"
 git -C "$SRC" add -A
 git -C "$SRC" -c user.email=test@example.com -c user.name=test -c commit.gpgsign=false commit -q -m init
 
 export VIBE_AGENT_PROVIDERS=codex
 restart_kernel
 
-VD=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
-created="$($VD task create -title rp -goal rp -repo "$SRC" -ac AC1=x)"
+VD=( ".bin/vibe" -socket "$SOCK" -identity "m1-dev" -token "$DEV_TOKEN" )
+RAW=( ".bin/vibe-raw" -socket "$SOCK" -identity "m1-dev" -token "$DEV_TOKEN" )
+created="$("${VD[@]}" task create -title rp -goal rp -repo "$SRC" -ac AC1=x)"
 WC="$(printf '%s\n' "$created" | sed -n 's/.*wc \([^ ]*\).*/\1/p')"
-alloc="$($VD workspace allocate "$WC" -repo "$SRC")"
+alloc="$("${VD[@]}" workspace allocate "$WC" -repo "$SRC")"
 WSPATH="$(printf '%s\n' "$alloc" | sed -n 's/.*path \([^ ]*\).*/\1/p')"
 [ -n "$WSPATH" ] || { echo "FAIL: no workspace path: $alloc"; exit 1; }
 
-run_out="$($VD agent run "$WC" -workspace "$WSPATH" -provider codex -timeout 5m \
-  -prompt 'Add a one-line Javadoc above the add method in Calc.java.' 2>&1 || true)"
+set +e
+run_out="$("${VD[@]}" agent run "$WC" -workspace "$WSPATH" -provider codex -timeout 5m \
+  -prompt 'Add a one-line Javadoc above the add method in Calc.java.' 2>&1)"
+run_rc=$?
+set -e
 printf '%s\n' "$run_out"
+[ "$run_rc" -eq 0 ] || { echo "FAIL: agent run exited $run_rc"; exit 1; }
 case "$run_out" in *"» "*) : ;; *) echo "FAIL: no streamed frames"; exit 1 ;; esac
 RUN_ID="$(printf '%s\n' "$run_out" | sed -n 's/^agent_run \([^ ]*\).*/\1/p')"
 [ -n "$RUN_ID" ] || { echo "FAIL: no run id"; exit 1; }
 
-q="$(.bin/vibe-raw -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
-  -cap agent.run.query -kind query -service default-agent-harness -authority agent-runs-main \
-  -payload "{\"work_context_id\":\"$WC\"}" 2>&1 || true)"
+q="$("${RAW[@]}" -cap agent.run.query -kind query -service default-agent-harness -authority agent-runs-main \
+  -payload "{\"work_context_id\":\"$WC\"}")"
 printf '%s\n' "$q"
-case "$q" in *'"provider":"codex"'*) : ;; *) echo "FAIL: run did not use codex"; exit 1 ;; esac
+if ! query_check="$(printf '%s\n' "$q" | python3 -c 'import json,sys; run_id=sys.argv[1]; runs=json.load(sys.stdin).get("agent_runs", []); assert len(runs)==1 and runs[0].get("id")==run_id and runs[0].get("provider")=="codex"; print("OK")' "$RUN_ID")"; then
+  echo "FAIL: agent.run.query did not return exactly the captured codex run: $q"
+  exit 1
+fi
+[ "$query_check" = "OK" ] || { echo "FAIL: agent.run.query validation: $q"; exit 1; }
 
-g="$(.bin/vibe-raw -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
-  -cap agent.run.get -kind query -service default-agent-harness -authority agent-runs-main \
-  -payload "{\"agent_run_id\":\"$RUN_ID\"}" 2>&1 || true)"
+g="$("${RAW[@]}" -cap agent.run.get -kind query -service default-agent-harness -authority agent-runs-main \
+  -payload "{\"agent_run_id\":\"$RUN_ID\"}")"
 printf '%s\n' "$g"
-case "$g" in *'"status":"COMPLETED"'*) : ;; *) echo "FAIL: run not COMPLETED"; exit 1 ;; esac
+if ! get_check="$(printf '%s\n' "$g" | python3 -c 'import json,sys; run_id=sys.argv[1]; run=json.load(sys.stdin).get("agent_run", {}); assert run.get("id")==run_id and run.get("provider")=="codex" and run.get("status")=="COMPLETED"; print("OK")' "$RUN_ID")"; then
+  echo "FAIL: agent.run.get did not return the completed codex run: $g"
+  exit 1
+fi
+[ "$get_check" = "OK" ] || { echo "FAIL: agent.run.get validation: $g"; exit 1; }
 
-ds="$(git -C "$WSPATH" diff --stat || true)"
+ds="$(git -C "$WSPATH" diff --stat)"
 printf '%s\n' "$ds"
 [ -n "$ds" ] || { echo "FAIL: codex made no change"; exit 1; }
 
-BLOB="$(printf '%s\n' "$g" | sed -n 's/.*"raw_session_ref":"\([^"]*\)".*/\1/p')"
-[ -n "$BLOB" ] || { echo "FAIL: no raw_session_ref"; exit 1; }
-rb="$(.bin/vibe-raw -socket "$SOCK" -identity m1-dev -token "$DEV_TOKEN" \
+if ! BLOB="$(printf '%s\n' "$g" | python3 -c 'import json,sys; ref=json.load(sys.stdin).get("agent_run", {}).get("raw_session_ref", ""); assert ref; print(ref)')"; then
+  echo "FAIL: no raw_session_ref: $g"
+  exit 1
+fi
+rb="$("${RAW[@]}" \
   -cap blob.get -kind query -service default-blob -authority blob-main \
-  -payload "{\"uri\":\"$BLOB\"}" 2>&1 || true)"
-[ -n "$rb" ] || { echo "FAIL: empty transcript blob"; exit 1; }
+  -payload "{\"uri\":\"$BLOB\"}")"
+if ! blob_check="$(printf '%s\n' "$rb" | python3 -c 'import base64,json,sys; raw=base64.b64decode(json.load(sys.stdin)["content_base64"]).decode("utf-8", "replace"); assert raw and "== result: COMPLETED ==" in raw; print("OK")')"; then
+  echo "FAIL: transcript blob is empty or lacks the assembled result line"
+  exit 1
+fi
+[ "$blob_check" = "OK" ] || { echo "FAIL: transcript blob validation"; exit 1; }
 
 echo "REAL PROVIDER (codex) VERIFY: OK"
 ```
 
-If `vibe workspace allocate` output format differs (`path` token), adjust the `sed` to the actual `vibe workspace allocate` line — check `grep -n 'func workspaceAllocate' -A40 cli/vibe/main.go` for the `Printf`.
+After writing the file, run `chmod +x "scripts/verify-real-provider.sh"` and keep the executable mode in the commit.
+
+If `vibe workspace allocate` output format differs (`path` token), adjust the `sed` to the actual `vibe workspace allocate` line — check `grep -n 'func workspaceAllocate' -A40 "cli/vibe/main.go"` for the `Printf`.
 
 - [ ] **Step 2: Verify the guard (no codex needed)**
 
-Run: `bash scripts/verify-real-provider.sh; echo "exit=$?"`
+Run: `test -x "scripts/verify-real-provider.sh" && bash "scripts/verify-real-provider.sh"; echo "exit=$?"`
 Expected: `SKIP: set VIBE_REAL_PROVIDER=codex to run` and `exit=0`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add scripts/verify-real-provider.sh
+git add "scripts/verify-real-provider.sh"
 git commit -m "$(cat <<'EOF'
-test(m1.8): scripts/verify-real-provider.sh (local, credential-gated)
+[代理适配器][add][新增真实Provider本地验证脚本]
 
-Reviewer-only real codex check: runs the agent against a scratch worktree
-and asserts streamed frames, provider==codex, COMPLETED, a real git diff,
-and a non-empty transcript blob. SKIPs without VIBE_REAL_PROVIDER=codex;
-never wired into smoke/check-arch.
+新增仅供Reviewer执行的真实codex检查：在临时工作树运行Agent并断言帧流、provider等于codex、COMPLETED、真实git差异和非空转录blob；未设置VIBE_REAL_PROVIDER=codex时跳过；不接入smoke或check-arch。
 
 Co-Authored-By: ChatGPT <chatgpt@users.noreply.github.com>
 Plan: docs/superpowers/plans/2026-09-01-m1-8-real-provider-adapter.md
@@ -2206,23 +2495,30 @@ EOF
 - [ ] **Step 1: Build (incl. fixture)**
 
 ```bash
-go build ./plugins/... ./cli/... && ( cd kernel && go build ./... ) && bash scripts/build.sh >/dev/null && echo BUILD_OK
-ls -la .bin/fake-agent-cli
+set -euo pipefail
+go build "./plugins/..." "./cli/..." && ( cd "kernel" && go build "./..." ) && bash "scripts/build.sh" >/dev/null && echo BUILD_OK
+ls -la ".bin/fake-agent-cli"
+rm -f "./vibe"
 ```
 Expected: `BUILD_OK`; the fixture exists.
 
 - [ ] **Step 2: Go tests + race**
 
 ```bash
-go test ./plugins/... ./plugins/_template ./cli/... && ( cd kernel && go test ./... ) && echo GO_TESTS_OK
-go test -race ./plugins/agent-harness/ && echo RACE_OK
+set -euo pipefail
+go test "./plugins/..." "./plugins/_template" "./cli/..." && ( cd "kernel" && go test "./..." ) && echo GO_TESTS_OK
+go test -race "./plugins/agent-harness/" && echo RACE_OK
+rm -f "./vibe"
 ```
 Expected: `GO_TESTS_OK`, `RACE_OK`. Confirm `real_provider`, `discovery`, `runreg`, live-cancel, and engineering-workflow provider tests are in the output.
 
 - [ ] **Step 3: Kernel regression**
 
 ```bash
-( cd kernel && ./scripts/build.sh >/dev/null && python3 tests/integration/m05_qualification.py ) ; rc=$?
+set +e
+( cd "kernel" && bash "./scripts/build.sh" >/dev/null && python3 "tests/integration/m05_qualification.py" )
+rc=$?
+set -e
 [ "$rc" -eq 0 ] && echo M05_OK || { echo "M05 rc=$rc"; exit 1; }
 ```
 Expected: `M0.5 ADVERSARIAL QUALIFICATION: PASSED`, `M05_OK`.
@@ -2230,7 +2526,10 @@ Expected: `M0.5 ADVERSARIAL QUALIFICATION: PASSED`, `M05_OK`.
 - [ ] **Step 4: Architecture checks (unchanged)**
 
 ```bash
-out="$(bash scripts/check-arch.sh)"; rc=$?
+set +e
+out="$(bash "scripts/check-arch.sh" 2>&1)"
+rc=$?
+set -e
 printf '%s\n' "$out"
 [ "$rc" -eq 0 ] || { echo "check-arch rc=$rc"; exit 1; }
 case "$out" in *"CONTRACT CHECK: PASSED (31 contracts"*"COMPOSITION FITNESS: PASSED (10 manifests"*"ARCH CHECKS OK"*) echo ARCH_OK ;; *) echo "unexpected"; exit 1 ;; esac
@@ -2241,7 +2540,10 @@ Expected: `ARCH_OK`.
 
 ```bash
 for i in 1 2 3; do
-  bash scripts/qualify-done-integrity.sh >"/tmp/m18-qual-$i.log" 2>&1 ; rc=$?
+  set +e
+  bash "scripts/qualify-done-integrity.sh" >"/tmp/m18-qual-$i.log" 2>&1
+  rc=$?
+  set -e
   last="$(tail -1 "/tmp/m18-qual-$i.log")"
   { [ "$rc" -eq 0 ] && [ "$last" = "DONE-INTEGRITY QUALIFICATION: OK" ]; } && echo "qual $i OK" || { echo "qual $i rc=$rc"; cat "/tmp/m18-qual-$i.log"; exit 1; }
 done
@@ -2252,18 +2554,21 @@ Expected: `qual 1 OK` … `qual 3 OK`.
 
 ```bash
 for i in 1 2 3 4 5; do
-  bash scripts/smoke.sh >"/tmp/m18-smoke-$i.log" 2>&1 ; rc=$?
+  set +e
+  bash "scripts/smoke.sh" >"/tmp/m18-smoke-$i.log" 2>&1
+  rc=$?
+  set -e
   [ "$rc" -eq 0 ] && grep -qx 'M1 SMOKE: PASSED' "/tmp/m18-smoke-$i.log" && ! grep -q FAIL "/tmp/m18-smoke-$i.log" && echo "smoke $i OK" || { echo "smoke $i rc=$rc"; tail -30 "/tmp/m18-smoke-$i.log"; exit 1; }
 done
-orph="$(pgrep -f 'vibe-kernel|plugins/manifests' | wc -l | tr -d ' ')"
-[ "$orph" = 0 ] && echo NO_ORPHANS || { echo "orphans: $orph"; exit 1; }
+orph="$(ps -axo pid=,comm= | awk '$2 ~ /(^|\/)(vibe-kernel|agent-harness|artifact|blob|engineering-work|event-journal|review|session|tool-runner|work-registry|workspace)([[:space:]]|$)/ {print}')"
+[ -z "$orph" ] && echo NO_ORPHANS || { echo "orphans:"; printf '%s\n' "$orph"; exit 1; }
 ```
 Expected: `smoke 1 OK` … `smoke 5 OK`, `NO_ORPHANS`.
 
 - [ ] **Step 7: verify-real-provider.sh guard**
 
 ```bash
-bash scripts/verify-real-provider.sh; echo "exit=$?"
+bash "scripts/verify-real-provider.sh"; echo "exit=$?"
 ```
 Expected: `SKIP…`, `exit=0`.
 
@@ -2271,24 +2576,25 @@ Expected: `SKIP…`, `exit=0`.
 
 | # | mutation (file) | command | expected red |
 |---|---|---|---|
-| M1 | `mapStatus`: delete the `*exec.ExitError` branch — `real_provider.go` | `go test ./plugins/agent-harness/ -run TestRealProviderNonZeroExitFails` | FAIL |
-| M2 | `mapStatus`: delete both `ctx.Err()` checks — `real_provider.go` | `go test ./plugins/agent-harness/ -run 'TestRealProviderDeadlineTimeout|TestRealProviderContextCancel'` | FAIL |
-| M3 | `killProcessGroup`: make it a no-op — `real_provider_exec_unix.go` | `go test ./plugins/agent-harness/ -run 'TestRealProviderContextCancel|TestRealProviderDeadlineTimeout'` | FAIL (pid alive / timeout exceeds bound) |
-| M4 | `mapStatus`: build `ProviderMeta` as `{"provider":name,"bin":p.bin,"args":args,"exit_code":…}` — `real_provider.go` | `go test ./plugins/agent-harness/ -run TestRealProviderMetaRedacted` | FAIL |
-| M5 | `allowlistedEnv`: delete `if denied(n)` — `discovery.go` | `go test ./plugins/agent-harness/ -run TestAllowlistedEnvDenylist` | FAIL |
-| M6 | `discoverProviders`: remove the `name == "mock"` skip — `discovery.go` | `go test ./plugins/agent-harness/ -run TestDiscoverySkipsMockCandidate` | FAIL |
-| M7 | `startAgentRun`: move the unknown-provider check after `RecordStarted` — `handlers.go` | `go test ./plugins/agent-harness/ -run TestStartAgentRunUnknownProviderNoRecord` | FAIL |
-| M8 | `cancelHandler` live branch: return immediately instead of `<-done` — `handlers.go` | `go test ./plugins/agent-harness/ -run TestLiveCancelStopsProviderThenPersists` | FAIL |
-| M9 | `session.go`: remove `<-ctx.Done()` from the mirror select | `go test ./plugins/agent-harness/ -run TestRunProviderStopsMirroringOnCancel` | FAIL (~2 s) |
-| M10 | `agentRunPayload`: `"provider": "mock"` literal — `engineering-workflow/handlers.go` | `go test ./plugins/engineering-workflow/ -run TestAgentRunPayloadCarriesProvider` | FAIL |
+| M1 | `mapStatus`: delete the `*exec.ExitError` branch — `real_provider.go` | `go test "./plugins/agent-harness/" -run TestRealProviderNonZeroExitFails` | FAIL |
+| M2 | `mapStatus`: delete both `ctx.Err()` checks — `real_provider.go` | `go test "./plugins/agent-harness/" -run 'TestRealProviderDeadlineTimeout|TestRealProviderContextCancel'` | FAIL |
+| M3 | `killProcessGroup`: make it a no-op — `real_provider_exec_unix.go` | `go test "./plugins/agent-harness/" -run TestRealProviderKillsProcessGroup` | FAIL (the `/bin/sleep` descendant remains alive) |
+| M4 | `redactedMeta`: add any `bin` or `args` key — `real_provider.go` | `go test "./plugins/agent-harness/" -run TestRealProviderMetaRedacted` | FAIL |
+| M5 | `allowlistedEnv`: delete `if denied(n)` — `discovery.go` | `go test "./plugins/agent-harness/" -run 'TestAllowlistedEnvDenylist|TestAllowlistEnvOverrideStillHonoursDenylist'` | FAIL |
+| M6 | `discoverProviders`: remove the `name == "mock"` skip — `discovery.go` | `go test "./plugins/agent-harness/" -run TestDiscoverySkipsMockCandidate` | FAIL |
+| M7 | `startAgentRun`: move the unknown-provider check after `RecordStarted` — `handlers.go` | `go test "./plugins/agent-harness/" -run TestStartAgentRunUnknownProviderNoRecord` | FAIL |
+| M8 | `cancelHandler` live branch: return immediately instead of `<-done` — `handlers.go` | `go test "./plugins/agent-harness/" -run TestLiveCancelStopsProviderThenPersists` | FAIL |
+| M9 | `session.go`: remove `<-ctx.Done()` from the mirror select | `go test "./plugins/agent-harness/" -run TestRunProviderStopsMirroringOnCancel` | FAIL (~2 s) |
+| M10 | `agentRunPayload`: `"provider": "mock"` literal — `engineering-workflow/handlers.go` | `go test "./plugins/engineering-workflow/" -run TestAgentRunPayloadCarriesProvider` | FAIL |
+| M11 | `codexArgv`: copy `RunSpec.Mock*` into the real-provider argv — `real_provider.go` | `go test "./plugins/agent-harness/" -run 'TestCodexArgvIsExact|TestRealProviderMockKnobsIgnored'` | FAIL (the mock-selected file appears or argv no longer matches the real template) |
 
-After each: `git checkout <file>`; confirm green. After the sweep: `git status --porcelain` empty.
+Before each mutation, record the exact original hunk. After the test turns red, restore that hunk with `apply_patch`, re-run the same test, and require green. Do not use `git checkout`/`git restore` for temporary mutations. After the sweep: `git status --porcelain` must be empty.
 
 - [ ] **Step 9: G1 + change scope**
 
 ```bash
-git diff --name-only "$BASE" HEAD -- kernel
-git diff --name-only "$BASE" HEAD -- docs/M1-DESIGN.md
+git diff --name-only "$BASE" HEAD -- "kernel"
+git diff --name-only "$BASE" HEAD -- "docs/M1-DESIGN.md"
 git diff --name-only "$BASE" HEAD
 ```
 Expected: first two empty. Third lists exactly:
@@ -2356,8 +2662,8 @@ Branch `chatgpt/m1-8-real-provider-adapter` → `main`, title **M1.8 — Real Pr
 | §9 NON-GOALS | not implemented by construction (no task adds them) |
 | §11 known limitations | documented in spec; no code |
 
-No gaps.
+Coverage is complete after the added argv-exactness, descendant-kill, concurrent-stop, cleanup, and exact local query/blob checks.
 
-**2. Placeholder scan** — every code step has literal Go/bash; every run step has an exact command + expected output. The two "adjust the sed if the output format differs" notes (Task 3 fixture-path, Task 10 workspace-allocate) point at a specific verification command, not a TBD.
+**2. Placeholder scan** — every implementation code step has literal Go/bash or an exact edit instruction; the `…` markers in the Task 9 excerpt only denote unchanged surrounding code. Every run step has an exact command + expected output. The remaining "adjust the sed if the output format differs" note (Task 10 workspace-allocate) points at a specific verification command, not a TBD; Task 3 resolves the fixture path from the test source and has no environment-dependent adjustment.
 
-**3. Type/name consistency** — `runDeps` fields (`Providers`, `DefaultProvider`, `Runs`) consistent across Tasks 6/7/11. `runOnce(ctx, prov, d, ar, spec, out)` 6-arg consistent (Task 6 def, Task 6/7 tests). `caps.AgentRun(provider, wc, path, prompt, wf, wc)` 6-arg consistent (Task 8 def, `pipeline_test.go` fakes, `TestRunPipelineForwardsProvider`). `RealProvider{name,bin,argv,env,timeout}` fields consistent (Task 3 def, Task 3/4/6/7 tests). `discoverProviders(candidates, envAllowlist, logw)` consistent (Task 4 def, Task 6 `main.go` call). `cancelHandler(s, runs)` consistent (Task 7 def, `main.go`, tests). `redactedMeta` / `maxFrameText` / `truncMark` / `mapStatus` / `statusFromCtx` all defined in Task 3. `agentRunPayload` defined Task 8, asserted Task 8, mutated Task 11 M10. Status strings match `store.go` constants. `assertPidGone` / `fakeBin` helpers defined in `real_provider_test.go` (Task 3) and reused in `handlers_test.go` (Task 7) — same package, fine.
+**3. Type/name consistency** — `runDeps` fields (`Providers`, `DefaultProvider`, `Runs`) consistent across Tasks 6/7/11. `runOnce(ctx, prov, d, ar, spec, out)` 6-arg consistent (Task 6 def, Task 6/7 tests). `caps.AgentRun(provider, wc, path, prompt, writeFile, writeContent)` 6-arg consistent (Task 8 def, `pipeline_test.go` fakes, `TestRunPipelineForwardsProvider`). `RealProvider{name,bin,argv,env,timeout}` fields consistent (Task 3 def, Task 3/4/6/7 tests). `discoverProviders(candidates, envAllowlist, logw)` consistent (Task 4 def, Task 6 `main.go` call). `cancelHandler(s, runs)` consistent (Task 7 def, `main.go`, tests). `redactedMeta` / `maxFrameText` / `truncMark` / `mapStatus` / `statusFromCtx` all defined in Task 3. `agentRunPayload` defined Task 8, asserted Task 8, mutated Task 11 M10. Status strings match `store.go` constants. `assertPidGone` / `fakeBin` helpers defined in `real_provider_test.go` (Task 3) and reused in `handlers_test.go` (Task 7) — same package, fine.
