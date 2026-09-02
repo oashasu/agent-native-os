@@ -225,7 +225,7 @@ func TestRealProviderKillsProcessGroup(t *testing.T) {
 	// implementation kills the process group, not merely the direct child.
 	pidFile := filepath.Join(t.TempDir(), "child-pid")
 	p := RealProvider{name: "shell", bin: "/bin/sh", env: []string{}, timeout: 500 * time.Millisecond,
-		argv: func(RunSpec) []string { return []string{"-c", `/bin/sleep 5 & echo $! > "$1"; wait`, "sh", pidFile} }}
+		argv: func(RunSpec) []string { return []string{"-c", `/bin/sleep 60 & echo $! > "$1"; wait`, "sh", pidFile} }}
 	res := runRealWithPID(t, pidFile, p, RunSpec{WorkspacePath: t.TempDir(), Prompt: "x"})
 	if res.Status != StatusTimeout {
 		t.Fatalf("status=%s", res.Status)
