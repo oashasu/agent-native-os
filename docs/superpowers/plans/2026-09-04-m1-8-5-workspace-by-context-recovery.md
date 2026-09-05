@@ -28,6 +28,23 @@
 
 ---
 
+## Before Task 1: capture `BASE`
+
+Every later reference to `"$BASE"` in this plan (Task 5) means the commit that carries this plan, its spec, and the dispatch prompt — the last commit before any Task 1–4 file is touched. Capture it once, right before starting Task 1, and persist it to a **file**, not a bare shell variable: separate steps in this plan may run in separate shells, and an exported variable does not survive across them.
+
+```bash
+git rev-parse HEAD > /tmp/m185-base.txt
+cat /tmp/m185-base.txt   # confirm: exactly one 40-char SHA, nothing else
+```
+
+Every later step that needs `$BASE` re-reads it fresh:
+```bash
+BASE="$(cat /tmp/m185-base.txt)"
+```
+never a bare `$BASE` assumed to already be set in the current shell.
+
+---
+
 ### Task 1: `GetByContext` selection logic
 
 **Files:**
@@ -72,6 +89,17 @@ func TestGetByContextPrefersLatestAllocated(t *testing.T) {
 	got, ok := s.GetByContext("wc-1")
 	if !ok || got.ID != "ws-2" {
 		t.Fatalf("want ws-2 (latest allocated), got %+v ok=%v", got, ok)
+	}
+}
+
+func TestGetByContextPrefersAllocatedOverNewerPreserveReleased(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	_ = s.RecordAllocated(WorkspaceRef{ID: "ws-1", WorkContextID: "wc-1", Status: StatusAllocated, AllocatedAt: "t0"})
+	_ = s.RecordAllocated(WorkspaceRef{ID: "ws-2", WorkContextID: "wc-1", Status: StatusReleased, ReleasePolicy: "preserve", AllocatedAt: "t1"})
+	got, ok := s.GetByContext("wc-1")
+	if !ok || got.ID != "ws-1" {
+		t.Fatalf("want ws-1 (ALLOCATED beats a RELEASED+preserve with a *later* AllocatedAt — priority is by status first, not by timestamp), got %+v ok=%v", got, ok)
 	}
 }
 
@@ -248,14 +276,18 @@ if len(candidates) == 0 {
 	candidates = allocated
 }
 ```
-Run: `go test ./plugins/workspace/... -run TestGetByContextPrefersLatestAllocated -v`
-Expected: FAIL. Restore the original `candidates := allocated` / fallback-to-`preserved` code exactly, re-run, confirm PASS.
+Run: `go test ./plugins/workspace/... -run TestGetByContextPrefersAllocatedOverNewerPreserveReleased -v`
+Expected: FAIL — the mutated code picks the RELEASED+preserve ref (`ws-2`, whose `AllocatedAt` is later) instead of the ALLOCATED one (`ws-1`).
+(`TestGetByContextPrefersLatestAllocated` is **not** a valid witness for this mutation: it has no RELEASED workspace at all, so `preserved` is empty and the mutated code falls back to `allocated` — same result, silently passing either way. Do not use it here.)
+Restore the original `candidates := allocated` / fallback-to-`preserved` code exactly, re-run, confirm PASS.
 
 - [ ] **Step 7: 致残对照 — drop the ID tiebreak (M3)**
 
 Temporarily change `refLess`'s final line from `return b.ID < a.ID` to `return false`. Run:
-`go test ./plugins/workspace/... -run TestGetByContextTiebreaksOnIDWhenAllTimestampsEqual -v` and `-run TestRefLessOrdering`.
-Expected: `TestGetByContextTiebreaksOnIDWhenAllTimestampsEqual` FAILs — on the full tie, `best` never advances past `candidates[0]`, whose identity depends on `s.byID`'s map iteration order (non-deterministic across runs; the test's fixed expectation `ws-a` will not reliably match). `TestRefLessOrdering`'s "smaller ID wins" subtest also FAILs (`refLess` now returns `false`, not `true`). Restore `return b.ID < a.ID`, re-run both commands, confirm PASS.
+`go test ./plugins/workspace/... -run TestRefLessOrdering -v`
+Expected: FAIL — specifically the `"equal AllocatedAt and ReleasedAt, smaller ID wins"` subtest (`refLess` now always returns `false` on a full tie, not `true`). This direct test of the pure comparator is the **only** required failure witness for M3, because it has no dependency on map iteration order.
+(`TestGetByContextTiebreaksOnIDWhenAllTimestampsEqual`'s outcome under this mutation is a **coincidence, not proof**: with the tiebreak gone, `best` never advances past `candidates[0]`, whose identity depends on `s.byID`'s map range order — Go's map iteration is randomized per run, so that test might still print `ws-a` and pass by chance. Do not claim it as evidence for M3, in either direction.)
+Restore `return b.ID < a.ID`, re-run `TestRefLessOrdering`, confirm PASS.
 
 - [ ] **Step 8: Commit**
 
@@ -414,12 +446,29 @@ Replace it with (only the `description` line is new; every other field is byte-i
 }
 ```
 
-- [ ] **Step 2: Verify the contract checker still passes with the same count**
+- [ ] **Step 2: Prove the edit added *only* `description`**
+
+`check-contracts.py` (Step 3) only validates that `request`/`response` are legal JSON Schema and that the catalog count is right — it does not catch an accidental change to `additionalProperties`, `required`, or a field inside `request`/`response`. Prove the shape is otherwise byte-identical by diffing the parsed JSON against the pre-edit commit (run this **before** committing, while `HEAD` is still the commit prior to this edit):
+
+```bash
+python3 -c "
+import json, subprocess
+old = json.loads(subprocess.check_output(['git', 'show', 'HEAD:contracts/workspace.get/v1/schema.json']))
+new = json.load(open('contracts/workspace.get/v1/schema.json'))
+new_without_description = {k: v for k, v in new.items() if k != 'description'}
+assert old == new_without_description, 'contract changed beyond adding description: old=%r new(minus description)=%r' % (old, new_without_description)
+assert isinstance(new.get('description'), str) and new['description'], 'description missing or empty'
+print('SCHEMA_SHAPE_UNCHANGED_OK')
+"
+```
+Expected: `SCHEMA_SHAPE_UNCHANGED_OK`. If the assertion fails, the edit touched something beyond `description` — revert and redo Step 1 exactly as written above.
+
+- [ ] **Step 3: Verify the contract checker still passes with the same count**
 
 Run: `python3 scripts/check-contracts.py --root contracts`
 Expected: `CONTRACT CHECK: PASSED (31 contracts, root=<absolute path to contracts>)` — same count as before this change (31). If the count differs, the edit broke JSON syntax or catalog identity; fix and re-run.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add contracts/workspace.get/v1/schema.json
@@ -442,10 +491,12 @@ Plan: docs/superpowers/plans/2026-09-04-m1-8-5-workspace-by-context-recovery.md"
 - Modify: `scripts/smoke-workspace.sh`
 
 **Interfaces:**
-- Consumes: `$SOCK`/`$DATA`/`$TOKEN`/`$DEV_TOKEN`/`restart_kernel` (from `scripts/lib/kernel-harness.sh`, already sourced by the parent `scripts/smoke.sh` before this fragment is sourced), the file's own existing `$V`, `$WC_ID`, `$WS_ID`, `$WT_PATH` variables (already set earlier in the same file), `vibe workspace show -work-context <wc>` (existing CLI flag, `cli/vibe/main.go:319` — prints `id`/`status`/`branch`/`path`/`base_commit` on separate lines).
+- Consumes: `$SOCK`/`$DATA`/`$TOKEN`/`$DEV_TOKEN`/`restart_kernel` (from `scripts/lib/kernel-harness.sh`, already sourced by the parent `scripts/smoke.sh` before this fragment is sourced), the file's own existing `$V`, `$WC_ID`, `$WS_ID`, `$WT_PATH` variables (already set earlier in the same file), `vibe workspace show -work-context <wc>` (existing CLI flag, `cli/vibe/main.go:319` — prints `id`/`status`/`branch`/`path`/`base_commit` on separate lines). `local-cli`'s grants in `config/m1-policy.json` already include `workspace.get@1` — no policy/bindings change needed.
 - Produces: a new smoke marker line `M1.8.5 WORKSPACE-BY-CONTEXT-RECOVERY SMOKE: OK`, printed after the pre-existing `M1.2 WORKSPACE SMOKE: OK` line (kept, unmodified, at its original position — nothing else in the repo depends on it being the file's last line).
 
 **This file cannot be run standalone** — it is `source`d by `scripts/smoke.sh`, which sets up `$SOCK`/`$DATA`/tokens and calls `build_bins`/`restart_kernel` first. Always test via `bash scripts/smoke.sh`.
+
+**Identity for the new check:** the existing `$V` in this file is `m1-dev`, a broadly-provisioned identity used for the *write* side of this fragment (allocate/release). The read that matters for M1.9's Console story is whether a caller with only query-level grants can rediscover the workspace — so the new check uses a **separate, read-only-scoped `local-cli` command variable**, not `$V`. `local-cli`'s existing grants already include `workspace.get@1` (`config/m1-policy.json`), so this needs no policy/bindings change.
 
 - [ ] **Step 1: Write the failing check**
 
@@ -453,11 +504,12 @@ Append to the end of `scripts/smoke-workspace.sh` (after the existing `echo "M1.
 
 ```bash
 
+VQ=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"   # read-only query identity — see Task 4 Interfaces
 restart_kernel
 
 byctx_out=""
 for _ in $(seq 1 50); do
-  byctx_out="$($V workspace show -work-context "$WC_ID" 2>/dev/null || true)"
+  byctx_out="$($VQ workspace show -work-context "$WC_ID" 2>/dev/null || true)"
   case "$byctx_out" in *"id $WS_ID"*"status RELEASED"*) break ;; esac
   sleep 0.1
 done
@@ -470,7 +522,7 @@ esac
 echo "M1.8.5 WORKSPACE-BY-CONTEXT-RECOVERY SMOKE: OK"
 ```
 
-Also update the file's header comment (currently lines 1-3, "M1.2 smoke fragment: ...") to add one sentence noting the M1.8.5 addition, e.g. append: `Also (M1.8.5): after that release, restart the kernel again and confirm workspace.get{work_context_id} still finds it (status RELEASED).`
+Also update the file's header comment (currently lines 1-3, "M1.2 smoke fragment: ...") to add one sentence noting the M1.8.5 addition, e.g. append: `Also (M1.8.5): after that release, restart the kernel again and confirm the read-only local-cli identity's workspace.get{work_context_id} still finds it (status RELEASED).`
 
 Since Task 1/2's implementation is not yet what this step is testing in isolation — the fragment can only be exercised through the full `scripts/smoke.sh` — this step's "run to see it fail" is the same command as Step 2 below, run *before* Tasks 1–3 are committed. Since Tasks 1–3 are already committed by the time you reach Task 4 in this plan's order, do the red/green proof by temporarily reverting Task 2's one-line handler change (not by reverting Task 1–3 wholesale):
 
@@ -546,6 +598,7 @@ Expected: empty (all four temporary mutations were reverted).
 - [ ] **Step 5: Scope check**
 
 ```bash
+BASE="$(cat /tmp/m185-base.txt)"   # captured in "Before Task 1: capture BASE"
 git diff --name-only "$BASE" HEAD
 ```
 Expected exactly:
@@ -557,7 +610,7 @@ plugins/workspace/store.go
 plugins/workspace/store_test.go
 scripts/smoke-workspace.sh
 ```
-(`$BASE` = the commit captured before Task 1 began, i.e. the tip of `main` when this plan's first commit was authored.) No `kernel/`, no other plugin, no `docs/M1-DESIGN.md`.
+No `kernel/`, no other plugin, no `docs/M1-DESIGN.md`, no `docs/superpowers/**` (those are already part of `$BASE`, not this diff).
 
 - [ ] **Step 6: Report**
 
@@ -567,8 +620,10 @@ State: final commit SHA, the six-file diff above confirmed exact, all of Steps 1
 
 ## Self-Review
 
-**1. Spec coverage** — invariant 0 (no kernel/contract-shape change): Task 3 + Task 5 Step 2/5. Invariant 1 (`GetActiveByContext` untouched): Task 1 Step 4 re-runs its test unmodified. Invariant 2 (selection order): Task 1 Steps 1/3. Invariant 3 (no `CONFLICT`): implementation in Task 1 Step 3 never returns an error from `GetByContext` other than the `bool`; `getHandler` unchanged for that path. Invariant 4 (`ReleasedAt` not primary): Task 1 `refLess`. Invariant 5 (two verification layers): Task 1's `TestGetByContextSurvivesReload` (layer 1) vs. Task 4's `restart_kernel` acceptance check (layer 2). §5 (致残 M1–M4): Task 1 Steps 5–7, Task 2 Step 5, re-verified in Task 5 Step 4. §6 acceptance items 1–7: Task 5 Steps 1–6.
+**1. Spec coverage** — invariant 0 (no kernel/contract-shape change): Task 3 Step 2 (structural diff) + Task 5 Steps 2/5. Invariant 1 (`GetActiveByContext` untouched): Task 1 Step 4 re-runs its test unmodified. Invariant 2 (selection order): Task 1 Steps 1/3, with the ALLOCATED-priority claim specifically witnessed by `TestGetByContextPrefersAllocatedOverNewerPreserveReleased` (not the same-status-only `TestGetByContextPrefersLatestAllocated`). Invariant 3 (no `CONFLICT`): implementation in Task 1 Step 3 never returns an error from `GetByContext` other than the `bool`; `getHandler` unchanged for that path. Invariant 4 (`ReleasedAt` not primary): Task 1 `refLess`. Invariant 5 (two verification layers): Task 1's `TestGetByContextSurvivesReload` (layer 1) vs. Task 4's `restart_kernel` acceptance check using the `local-cli` read-only identity (layer 2). §5 (致残 M1–M4): Task 1 Steps 5–7 (M3's sole valid witness is `TestRefLessOrdering`, not the map-order-dependent `GetByContext`-level test), Task 2 Step 5, re-verified in Task 5 Step 4. §6 acceptance items 1–7: Task 5 Steps 1–6. The "Before Task 1: capture BASE" preamble makes Task 5 Step 5's whitelist check reproducible across separate shells.
 
-**2. Placeholder scan** — every step has literal Go/bash/JSON; no "TBD"/"handle edge cases"; the one deliberately-explained deviation from the bite-sized template (Task 4 Step 1's note about deferring the red-proof to Step 2) states exactly what to do, not a vague deferral.
+**2. Placeholder scan** — every step has literal Go/bash/JSON/Python; no "TBD"/"handle edge cases"; the one deliberately-explained deviation from the bite-sized template (Task 4 Step 1's note about deferring the red-proof to Step 2) states exactly what to do, not a vague deferral.
 
-**3. Type/name consistency** — `GetByContext(wcID string) (WorkspaceRef, bool)` matches its Task 1 definition and Task 2's handler call; `refLess(a, b *WorkspaceRef) bool` matches its one call site in `GetByContext` and its direct test. `getHandler`'s `ref, ok = s.GetByContext(q.WorkContextID)` matches the existing `var ref WorkspaceRef; var ok bool` declared above it in the handler (unchanged). Test helpers (`scratchRepo`, `fencedEnv`, `allocate`) are consumed with their existing signatures, not redefined.
+**3. Type/name consistency** — `GetByContext(wcID string) (WorkspaceRef, bool)` matches its Task 1 definition and Task 2's handler call; `refLess(a, b *WorkspaceRef) bool` matches its one call site in `GetByContext` and its direct test. `getHandler`'s `ref, ok = s.GetByContext(q.WorkContextID)` matches the existing `var ref WorkspaceRef; var ok bool` declared above it in the handler (unchanged). Test helpers (`scratchRepo`, `fencedEnv`, `allocate`) are consumed with their existing signatures, not redefined. Task 4's new `$VQ` variable is named distinctly from the file's existing `$V` (`m1-dev`) so neither shadows the other.
+
+**4. Fixed after independent review (2026-09-05):** (a) added `TestGetByContextPrefersAllocatedOverNewerPreserveReleased` — the original M2 witness (`TestGetByContextPrefersLatestAllocated`) had no RELEASED candidate, so inverting the ALLOCATED/preserved priority silently fell through to the same answer and would not have failed; (b) added the "Before Task 1: capture BASE" preamble — Task 5 previously referenced `"$BASE"` with no step defining it, and a bare env var would not survive across separate shell invocations anyway; (c) Task 4's new check now uses a dedicated `local-cli` (`$VQ`) identity instead of reusing `$V` (`m1-dev`) — `local-cli` already holds `workspace.get@1` in `config/m1-policy.json`, so this needed no policy change, and it validates the query path a real read-only Console caller would actually use; (d) Task 1 Step 7 no longer claims the `GetByContext`-level test fails under the M3 mutation — only `TestRefLessOrdering`'s direct subtest is a valid witness, since dropping the ID tiebreak makes the `GetByContext`-level result depend on Go's randomized map iteration order; (e) Task 3 gained a Step 2 that diffs the parsed JSON against the pre-edit commit, so "only `description` changed" is proven, not asserted.
