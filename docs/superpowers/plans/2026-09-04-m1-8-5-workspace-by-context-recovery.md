@@ -33,13 +33,13 @@
 Every later reference to `"$BASE"` in this plan (Task 5) means the commit that carries this plan, its spec, and the dispatch prompt — the last commit before any Task 1–4 file is touched. Capture it once, right before starting Task 1, and persist it to a **file**, not a bare shell variable: separate steps in this plan may run in separate shells, and an exported variable does not survive across them.
 
 ```bash
-git rev-parse HEAD > /tmp/m185-base.txt
-cat /tmp/m185-base.txt   # confirm: exactly one 40-char SHA, nothing else
+git rev-parse HEAD > "/tmp/m185-base.txt"
+cat "/tmp/m185-base.txt"   # confirm: exactly one 40-char SHA, nothing else
 ```
 
 Every later step that needs `$BASE` re-reads it fresh:
 ```bash
-BASE="$(cat /tmp/m185-base.txt)"
+BASE="$(cat "/tmp/m185-base.txt")"
 ```
 never a bare `$BASE` assumed to already be set in the current shell.
 
@@ -577,9 +577,15 @@ Expected: `CONTRACT CHECK: PASSED (31 contracts...)`, `COMPOSITION FITNESS: PASS
 
 ```bash
 for i in 1 2 3 4 5; do
-  bash scripts/smoke.sh >/tmp/m185-smoke-$i.log 2>&1
-  rc=$?
-  { [ "$rc" -eq 0 ] && grep -qx 'M1 SMOKE: PASSED' "/tmp/m185-smoke-$i.log" && ! grep -q FAIL "/tmp/m185-smoke-$i.log"; } \
+  if bash "scripts/smoke.sh" >"/tmp/m185-smoke-$i.log" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+  { [ "$rc" -eq 0 ] \
+      && grep -qx 'M1 SMOKE: PASSED' "/tmp/m185-smoke-$i.log" \
+      && grep -qx 'M1.8.5 WORKSPACE-BY-CONTEXT-RECOVERY SMOKE: OK' "/tmp/m185-smoke-$i.log" \
+      && ! grep -q FAIL "/tmp/m185-smoke-$i.log"; } \
     && echo "smoke $i OK" || { echo "smoke $i rc=$rc"; tail -30 "/tmp/m185-smoke-$i.log"; exit 1; }
 done
 orph="$(ps -axo pid=,comm= | awk '$2 ~ /(^|\/)(vibe-kernel|agent-harness|artifact|blob|engineering-work|event-journal|review|session|tool-runner|work-registry|workspace)([[:space:]]|$)/')"
@@ -598,7 +604,7 @@ Expected: empty (all four temporary mutations were reverted).
 - [ ] **Step 5: Scope check**
 
 ```bash
-BASE="$(cat /tmp/m185-base.txt)"   # captured in "Before Task 1: capture BASE"
+BASE="$(cat "/tmp/m185-base.txt")"   # captured in "Before Task 1: capture BASE"
 git diff --name-only "$BASE" HEAD
 ```
 Expected exactly:
