@@ -1,31 +1,24 @@
 # M1.9 — M1 Qualification (real provider end-to-end + G1–G6) — Design
 
-**Status:** rev10 for review (2026-09-04)
+**Status:** rev11 for review (2026-09-06) — updated after **M1.8.5** landed (`m1.8.5-workspace-by-context-recovery`, merge `4be9939`): `workspace.get{work_context_id}` now deterministically returns a `RELEASED`+`preserve` workspace, so the `workspace_id`-bridge workaround this spec previously carried is gone and the ADR-002 read-projection result becomes **unconditional**.
 **Spec source:** `docs/M1-DESIGN.md` §2 (G1–G6), §10 (qualification scenario), §13 (milestone M1.9), ADR-002 (Console read-projection sufficiency acceptance), ADR-003 (frontend deferred — unaffected here).
-**Milestone position:** after M1.8 (`m1.8-real-provider-adapter`; the post-merge documentation reconciliation is `c640957`), last milestone of M1. On success → **"M1 ENGINEERING VERTICAL SLICE: PASSED"**, then M2.
+**Milestone position:** after M1.8 (`m1.8-real-provider-adapter`; post-merge doc reconciliation `c640957`) and M1.8.5 (`m1.8.5-workspace-by-context-recovery`, `4be9939`), last milestone of M1. On success → **"M1 ENGINEERING VERTICAL SLICE: PASSED"**, then M2.
 **Execution:** dev-machine only: one production run creates the durable result, followed by one independent verification rerun. Neither is dispatched or run in CI. The script records the installed codex-cli version at runtime (the M1.8 baseline was 0.152.1), plus the required Maven 3.9.12 / Java 8 versions and the installed Go version.
 
 ---
 
 ## 1. Goal
 
-Prove the whole locked engineering workflow runs on **a real coding agent (codex) making a real change verified by a real build/test**, and that every M1 gate (G1–G6) holds with **explicit, cross-checked evidence** — not a green happy-path. The load-bearing new check is the reconstructable portion of ADR-002's public read-projection claim, made **falsifiable** here so it cannot surface as expensive rework during the UI phase. The result is deliberately conditional: because the current workspace query returns only allocated workspaces by `work_context_id`, the qualification resolves the stable `workspace_id` while the workflow is at `WAITING_REVIEW`, then re-queries the released workspace by that public id after restart. It proves the seven-projection object join with that public-id bridge; it does **not** close ADR-002's separate task-only navigation question for an already-released workspace.
+Prove the whole locked engineering workflow runs on **a real coding agent (codex) making a real change verified by a real build/test**, and that every M1 gate (G1–G6) holds with **explicit, cross-checked evidence** — not a green happy-path. The load-bearing new check is ADR-002's public read-projection claim, made **falsifiable** here so it cannot surface as expensive rework during the UI phase: after a full kernel restart, holding only a `task_id`, the seven public projections must reconstruct the whole WorkContext view — including the workspace, which by then is `RELEASED`+`preserve`. **M1.8.5 closed the one gap that previously forced a conditional result** (`workspace.get{work_context_id}` returning only `ALLOCATED` workspaces); the qualification now navigates the real cold-start Console path — `work.get{task_id}` → its `work_context_id` → `workspace.get{work_context_id}` — with no `workspace_id` captured ahead of time.
 
-M1.9 adds **no kernel change, no plugin change, no contract change**. It is a qualification harness plus documentation reconciliation.
-
-**Decision boundary:** this spec is meaningful as the final M1 vertical-slice
-qualification only if the retained public `workspace_id` is an accepted
-qualification bridge. If the milestone is required to close the original
-ADR-002 claim for cold-start, task-only navigation of a released workspace,
-this is the wrong scope: the workspace API/read model must be changed first,
-and the zero-plugin-change M1.9 result must remain **not approved**.
+M1.9 adds **no kernel change, no plugin change, no contract change**. It is a qualification harness plus documentation reconciliation. (The workspace-plugin change that made this possible was M1.8.5, already merged and tagged.)
 
 ## 2. Design invariants (must hold at merge)
 
 0. **No kernel / plugin / contract change.** `git diff <QUAL_BASE>` touches nothing under `kernel/`, `plugins/`, or `contracts`, and does not modify `scripts/check-arch.sh`, `scripts/smoke.sh`, `scripts/smoke-*.sh`, or `scripts/qualify-done-integrity.sh`. `QUAL_BASE` is captured after this spec and its implementation plan are committed and before implementation starts. The final implementation delta is exactly `scripts/qualify-m1.sh`, `scripts/lib/console-projection.sh`, `docs/M1-DESIGN.md`, and `docs/M1-RESULT.md`; the spec and plan are already at `QUAL_BASE` and are not part of that delta.
 1. **Real provider is mandatory.** The M1.9 vertical-slice run uses `provider=codex`. A vertical-slice run with `provider=mock`, with `-mock-write-file`, or with `sh -c true` as build/test is **not** a qualifying run and must not produce a PASS. The inherited G4 `qualify-done-integrity.sh` suite is allowed to retain its deterministic mock fixtures; it is a separate adversarial gate, not the M1.9 real-provider run.
 2. **No SKIP-as-PASS.** `qualify-m1.sh` requires `VIBE_REAL_PROVIDER=codex` and a working codex/mvn/java. If any precondition is missing it prints `SKIP: …` and exits 0 **without** printing `M1 ENGINEERING VERTICAL SLICE: PASSED`, without writing `docs/M1-RESULT.md`, and without creating the tag.
-3. **Projection reads only the public query surface.** The Console-projection assertion library calls **only** `work.get`, `workspace.get`, `agent.run.query`, `artifact.query`, `tool.run.query`, `review.query`, `session.query`; it does not call `blob.get` itself. The acceptance harness may call the public `blob.get` only outside that library to resolve a reference already returned by a projection. Likewise, `workflow.engineering.get` is used only by the harness as a control-plane synchronization query for `WAITING_REVIEW`/`DONE`/`SEALED`; its stage/events never populate a projection field. Neither path reads a plugin's private JSONL log or state directory, or uses `git diff` to fill a field the seven projections did not return. The harness performs one public `workspace.get{work_context_id}` while the workspace is still `ALLOCATED`, records the returned `workspace_id`, and supplies that stable public selector to the post-restart live assertion; after release, `workspace.get{work_context_id}` is not claimed to work. The library entry point is therefore `assert_console_projection <mode> <task_id> [workspace_id]`; `live` requires the captured `workspace_id`, while `file:DIR` loads it from the snapshot. Its only non-projection input is the required `CONSOLE_PROJECTION_POLICY` comparison file; that file supplies expectations only and never fills an observed field.
+3. **Projection reads only the public query surface.** The Console-projection assertion library calls **only** `work.get`, `workspace.get`, `agent.run.query`, `artifact.query`, `tool.run.query`, `review.query`, `session.query`; it does not call `blob.get` itself. The acceptance harness may call the public `blob.get` only outside that library to resolve a reference already returned by a projection. Likewise, `workflow.engineering.get` is used only by the harness as a control-plane synchronization query for `WAITING_REVIEW`/`DONE`/`SEALED`; its stage/events never populate a projection field. Neither path reads a plugin's private JSONL log or state directory, or uses `git diff` to fill a field the seven projections did not return. **All seven post-restart projections are keyed only by identifiers the Console has at cold start:** `work.get{task_id}` (the sole input), then every other query by the `work_context_id` in that first response — including `workspace.get{work_context_id}`, which after M1.8.5 returns the `RELEASED`+`preserve` workspace. No `workspace_id` is captured before restart. The library entry point is `assert_console_projection <mode> <task_id>`. Its only non-projection input is the required `CONSOLE_PROJECTION_POLICY` comparison file; that file supplies expectations only and never fills an observed field.
 4. **致残 mutates data, not tests.** The projection 致残 check nulls `Artifact.summary.files[]` **in the projection input data** and re-invokes the assertion library; it does not delete an assertion or re-run the real workflow.
 5. **Client disconnect must not cancel the workflow.** The qualifying run kills the `vibe workflow run` client process while the workflow is parked at `WAITING_REVIEW`, then proves — via an independent `workflow.get` poll from a different client — that the workflow still reaches `DONE`/`SEALED` after the review is decided.
 6. **codex must not commit.** The task prompt explicitly forbids `git commit`. `artifact.collect_diff` and `RecoveryCheckpoint.tracked_patch_ref` are both built from the **uncommitted working-tree diff relative to HEAD** (`git diff HEAD`); a commit would empty them.
@@ -219,9 +212,10 @@ setup:
   write the fixed policy from §4.2 with `repo` set to `$SRC`, export
   `CONSOLE_PROJECTION_POLICY="$POLICY"`, and use this same policy for the
   live assertion and every `file:` mutation copy
-  after REVIEW_ID and WORKSPACE_ID are known, write a short-lived
+  after REVIEW_ID is known, write a short-lived
   `$DATA/m1.9-review-handoff.json` containing `SOCK`, `TASK`, `WC`, `RID`,
-  `WORKSPACE_ID`, and `workspace_path`. After the client disconnect is
+  and `workspace_path` (the allocated worktree path, for the reviewer's
+  `git -C … diff` inspection). After the client disconnect is
   verified, print its path and the exact m1-dev `review show` / diff-inspection
   / `review decide` commands. The printed decision command is exactly
   `".bin/vibe" -socket "<socket>" -identity "m1-dev" -token "m1-dev-token" review decide "<review-id>" -approved -reviewer "m1-dev" -acceptance AC1=pass -acceptance AC2=pass -acceptance AC3=pass`.
@@ -238,8 +232,8 @@ setup:
   token in the handoff file; the fixed `DEV_TOKEN` is supplied on the command
   line.
   The handoff JSON keys are exactly `socket`, `task_id`, `work_context_id`,
-  `review_id`, `workspace_id`, and `workspace_path`; its values are the
-  captured runtime values, not placeholders.
+  `review_id`, and `workspace_path`; its values are the captured runtime
+  values, not placeholders.
 
 task setup (as m1-dev, repo is the harness-created $SRC, not the fixture path):
   vibe task create -title "M1.9 real overflow hardening" \
@@ -259,13 +253,13 @@ automatically inject the Task projection into `agent.run`):
                    -build "mvn -q -DskipTests compile"   -test "mvn -q test" \
                    -timeout 30m
   → kill the client at WAITING_REVIEW, verify the workflow survives
-  as m1-dev:     resolve review_id (JSON parse) ; while the workspace is still ALLOCATED,
-                 call workspace.get{work_context_id}, save its response and WORKSPACE_ID;
-                 inspect the diff (resolve diff_artifact_id → artifact.get / blob.get, or
-                 read the worktree) ; manually execute review decide … --approved
+  as m1-dev:     resolve review_id (JSON parse) ; inspect the diff (resolve
+                 diff_artifact_id → artifact.get / blob.get, or read the worktree) ;
+                 manually execute review decide … --approved
   independent poll: workflow.engineering.get until stage DONE, then SEALED;
-                 also wait for `workspace.get{workspace_id=WORKSPACE_ID}` to
-                 report `RELEASED` before restarting or running final gates
+                 also wait for `workspace.get{work_context_id}` to report
+                 `RELEASED`+`preserve` before restarting or running final gates
+                 (after M1.8.5 this query returns the released workspace)
 
 gates:   run the G1 kernel/forbidden-path checks, G2..G6 assertions of §7, and
          the projection assertion of §4.2, then complete the D1..D5 sweep of
@@ -313,8 +307,8 @@ on all green (in this order):
 Structural notes:
 - **build/test commands are fixed and relative.** `tool-runner` sets the child's working directory to the allocated workspace (`plugins/tool-runner/runner.go:24`), and `workspace.allocate` happens *inside* the workflow — the script never knows the worktree path when it starts `vibe workflow run`. So the commands are `mvn -q -DskipTests compile` / `mvn -q test` with no `-f`; `pom.xml` resolves from the worktree cwd.
 - `.query` capabilities are not friendly `vibe` subcommands; the qualification code uses `.bin/vibe-raw -cap <name> -kind query -service <svc> -authority <auth> -payload …`, exactly as `scripts/verify-real-provider.sh` already does for `agent.run.query` / `blob.get`. The implementation must use this fixed service/authority map (the values are not environment-configurable): `work.get → default-work-registry/work-main`, `workspace.get → default-workspace/workspace-main`, `agent.run.query → default-agent-harness/agent-runs-main`, `artifact.query → default-artifact/artifact-main`, `tool.run.query → default-tool-runner/toolruns-main`, `review.query → default-review/reviews-main`, `session.query → default-session/sessions-main`, and `blob.get → default-blob/blob-main`. The human handoff may additionally use the existing public `artifact.get → default-artifact/artifact-main`; the projection library may not call `artifact.get` or `blob.get`.
-- The exact raw-query payloads are fixed: `work.get`=`{"task_id":"$TASK"}`; pre-release `workspace.get`=`{"work_context_id":"$WC"}`; post-release `workspace.get`=`{"workspace_id":"$WORKSPACE_ID"}`; every other projection query=`{"work_context_id":"$WC"}`; `blob.get`=`{"uri":"$URI"}`. No query is made with both selectors, and no query result is synthesized from another query's fields.
-- Snapshot filenames are fixed and capability-scoped: `work.get.json`, `workspace.get.json`, `agent.run.query.json`, `artifact.query.json`, `tool.run.query.json`, `review.query.json`, and `session.query.json`. The post-restart seven files live in the empty `$DATA/projection-snapshots` directory; the pre-release bridge response is saved separately as `$DATA/projections/workspace.pre-release.json` (auxiliary evidence, not one of the seven mutation inputs). The post-restart `workspace.get.json` is queried by the captured `WORKSPACE_ID`; the other six are queried by the `work.get` response's `work_context_id`.
+- The exact raw-query payloads are fixed: `work.get`=`{"task_id":"$TASK"}`; every other projection query, `workspace.get` included, =`{"work_context_id":"$WC"}` where `$WC` is the `work_context_id` from the `work.get` response; `blob.get`=`{"uri":"$URI"}`. No `workspace_id` selector is used anywhere in the qualification; no query result is synthesized from another query's fields.
+- Snapshot filenames are fixed and capability-scoped: `work.get.json`, `workspace.get.json`, `agent.run.query.json`, `artifact.query.json`, `tool.run.query.json`, `review.query.json`, and `session.query.json`. All seven post-restart files live in the empty `$DATA/projection-snapshots` directory, and all seven are queried using only the cold-start identifiers (`task_id` for `work.get`, its `work_context_id` for the other six).
 - The raw-query wrapper retries only transport/temporary-runtime failures for a bounded 30 seconds after `restart_kernel`; once a capability answers, a semantic `NOT_FOUND`/malformed response is a hard FAIL and is never converted to a retry or PASS.
 - `fixtures/sample-java-project` is copied into a throwaway `$SRC`; the runtime `.gitignore` for `target/` is committed in `SRC_BASE`, so Maven output cannot pollute either the artifact scope or `RecoveryCheckpoint.untracked_manifest`.
 - codex's first real run may take 1–3 min; `-timeout 30m` and a wall-clock deadline in §5 accommodate it. A fixed number of polls is not sufficient because each CLI query has its own socket timeout.
@@ -324,10 +318,10 @@ Structural notes:
 A sourced library, not an executable. One entry point:
 
 ```
-assert_console_projection <mode> <task_id> [workspace_id]
-    mode = "live"     → fetch the 7 projections from the running kernel;
-                         workspace_id is required and was captured by the public
-                         workspace.get{work_context_id} query while ALLOCATED;
+assert_console_projection <mode> <task_id>
+    mode = "live"     → fetch the 7 projections from the running kernel using only
+                         <task_id> (work.get) and the work_context_id in its response
+                         (the other six, workspace.get included — no workspace_id);
                          CONSOLE_PROJECTION_SNAPSHOT_DIR is required and receives
                          the seven raw response payloads under the fixed filenames
     mode = "file:DIR" → load the 7 projections from DIR/<capability>.json (for 致残 —
@@ -401,14 +395,14 @@ select a released workspace by `work_context_id` in the current implementation, 
 the harness captures the public workspace id before release and reuses that selector
 after restart. The library never accepts a pre-resolved `work_context_id`, reads a
 journal event to discover the id, or reads private state. In `live` mode the
-caller supplies only the already-captured public `workspace_id` in addition to
-the task id; the helper still derives the wc from `work.get`. It fetches / loads
+caller supplies only the task id; the helper derives the wc from `work.get` and
+keys every other query — `workspace.get` included — by that wc. It fetches / loads
 exactly these seven capabilities and nothing else:
 
 | projection | capability | key |
 |---|---|---|
 | task view | `work.get` | `{task_id}` → yields `work_context_id` |
-| workspace | `workspace.get` | `{workspace_id}` from the pre-release public response |
+| workspace | `workspace.get` | `{work_context_id}` (after M1.8.5 this returns the `RELEASED`+`preserve` workspace) |
 | agent runs | `agent.run.query` | `{work_context_id}` |
 | artifacts | `artifact.query` | `{work_context_id}` |
 | tool runs | `tool.run.query` | `{work_context_id}` |
@@ -426,24 +420,25 @@ sweep cannot accidentally re-query or replace live state.
 
 Assertions (all must hold; any failure → non-zero + a specific message):
 
-1. **IDE-lens fields present**: the returned Workspace has the captured `workspace_id`, matching `work_context_id`, `repo == policy.repo`, non-empty `path`, `base_commit`, `status == "RELEASED"`, and `release_policy == "preserve"` after the final run; `artifact.query` returns exactly one artifact, its `work_context_id ==` the wc, and it is `Artifact{kind=diff}` with `summary.files_changed == len(policy.files)`; `summary.files[]` is **non-empty** and contains exactly the policy's repo-relative scoped paths — no out-of-scope file.
+1. **IDE-lens fields present**: `workspace.get{work_context_id}` returns a Workspace with `work_context_id ==` the wc, `repo == policy.repo`, non-empty `path`, non-empty `base_commit`, `status == "RELEASED"`, and `release_policy == "preserve"` after the final run (this is the M1.8.5 path — a released workspace found by context id, no `workspace_id` needed); `artifact.query` returns exactly one artifact, its `work_context_id ==` the wc, and it is `Artifact{kind=diff}` with `summary.files_changed == len(policy.files)`; `summary.files[]` is **non-empty** and contains exactly the policy's repo-relative scoped paths — no out-of-scope file.
 2. **Agent-lens fields present**: exactly one `AgentRun` for this wc with `{id, work_context_id, workspace_path, provider, status, raw_session_ref, provider_metadata}` all populated; `work_context_id ==` the wc, `workspace_path == workspace.path`, `provider == policy.provider`, `status == "COMPLETED"`, `frame_count > 0`, `provider_metadata` has exactly the keys `provider` and `exit_code`, `provider_metadata.provider == policy.provider`, and `provider_metadata.exit_code == 0`. The metadata must contain no argv, prompt, token, or other unredacted process data.
 3. **Truth chain wired**: `work.get` returns the expected task with `id == task_id`, `work_context_id ==` the wc, `title == policy.title`, `goal == policy.goal`, `scope == join(policy.files, ",")`, `status == "DONE"`, and its acceptance-criterion id/text pairs exactly equal the policy's `acceptance_criteria` in order. Its WorkContext has `id ==` the wc, `task_id ==` the task id, `repo == policy.repo`, and exactly `len(policy.tools)` EvidenceRefs total, all non-invalidated, with exactly one for each policy tool label, each with `source_capability == "tool.run@1"`, `outcome == "PASS"`, and `source_id` equal to the corresponding ToolRun id. `tool.run.query` returns exactly the policy's ToolRuns with `work_context_id ==` the wc, `workspace_path == workspace.path`, `cwd == workspace.path`, labels exactly `build`/`test`, and JSON field `command[]` (the structured argv) exactly equal to `policy.tools.build` / `policy.tools.test`; `exit_code == 0` and `outcome == "PASS"`. `review.query` returns exactly one Review with `work_context_id ==` the wc, `agent_run_id ==` the AgentRun id, `reviewer == policy.reviewer`, `status == "APPROVED"`, and `diff_artifact_id ==` the `Artifact{kind=diff}.id`; its two-item `evidence_snapshot` has one item per policy tool label, each `outcome == "PASS"`, and each `evidence_ref_id` equals the corresponding ToolRun id (the shipped wiring documented in invariant 11). Its acceptance-result IDs are exactly the policy acceptance-criterion ids with no duplicates, and all `satisfied == true`.
 4. **Session record present and internally consistent**: `session.query` returns exactly one `SessionRecord` with non-empty `id`, `archive_ref`, and `archive_hash`, outer `work_context_id ==` the wc, and outer `agent_run_id ==` the AgentRun id. Its outer `event_selection` and `RecoveryCheckpoint.canonical_event_selection` agree on correlation id, event ids, hashes, and count; the correlation id is the wc, and the count satisfies `event_count == len(event_ids) == len(event_sha256s)` (the count may be zero under invariant 8). The `RecoveryCheckpoint` has `work_context_id ==` the wc, `agent_run_id ==` the AgentRun id, `worktree_path_at_seal == workspace.path`, `base_commit == head_commit == workspace.base_commit`, `branch == workspace.branch`, `dirty == true`, `untracked_manifest == []`, and non-empty `tracked_patch_ref`; under the current zero-plugin-change flow its `task_id`, `provider`, `diff_artifact_id`, and `harness_native_id` are explicitly empty. The live G5 blob check separately parses the archive, requires its nested `session_record.id`/`work_context_id`/`agent_run_id` and the entire nested `recovery_checkpoint` to agree with the public checkpoint, requires the nested `session_record.archive_ref` and `archive_hash` to be empty strings (they were serialized before those fields were filled), requires each nested canonical event's `id`/`sha256` to match the selection arrays in order, and requires `canonical_events` length to equal that event count; the `file:` mode remains self-contained with only the seven projection JSON files.
-5. **View is reconstructable and consistent across projections**: taken together, the 7 projections yield one coherent WorkContext view — the task, wc, released workspace, codex AgentRun, two ToolRuns/EvidenceRefs, diff Artifact, Review, and sealed SessionRecord all join by their public ids and agree on the two scoped files. This is the **conditional** ADR-002 assertion: the public projection set is sufficient once the public `workspace_id` captured during the allocated lifetime is retained; it does not certify task-only rediscovery of an already-released workspace by `task_id` or `work_context_id`.
+5. **View is reconstructable from `task_id` alone**: starting from only the `task_id`, the 7 public projections — keyed by `task_id` and the `work_context_id` it yields, nothing else — reconstruct one coherent WorkContext view: task, wc, the released-but-preserved workspace, the codex AgentRun, two ToolRuns/EvidenceRefs, diff Artifact, Review, and sealed SessionRecord, all joining by their public ids and agreeing on the two scoped files. This is the **ADR-002 read-projection sufficiency claim, now unconditional**: after M1.8.5 the cold-start Console path (`work.get{task_id}` → `workspace.get{work_context_id}` returning the released workspace) is fully exercised here — there is no retained `workspace_id`, no bridge, and no open task-only-navigation question.
 6. **No private reads / no backfill**: the library contains no path into a plugin data dir, no `git` call, and no `blob.get` call. (Enforced by review of the library source, and by the `file:` mode working with only the 7 JSON blobs plus the caller-supplied policy file. Blob bytes and the preserved worktree are checked by the acceptance harness outside the projection library.)
 
 ### 4.3 `docs/M1-DESIGN.md` edits (part of this milestone)
 
 - **§6/§7/§9**: reconcile the existing projection and correlation wording with the shipped M1.6 call path: the Review snapshot's `evidence_ref_id` currently contains the ToolRun id because `AttachEvidence` returns only an error; M1.9 checks the actual WorkContext EvidenceRefs separately and does not describe that snapshot field as an EvidenceRef id. Workflow child calls retain the outer request correlation, while the `session.seal` payload includes neither `correlation_id` nor `event_ids`; replace the claim that workflow event ids are handed to `session.seal` with the actual behavior and state that M1.9 checks canonical-event selection shape/archive consistency and permits `event_count == 0`, rather than claiming a non-empty event selection that the current zero-plugin flow does not guarantee.
-- **§10**: replace the task text with §3 above and replace the run snippet with the exact prompt/build/test arguments and WAITING_REVIEW client-disconnect protocol from §4.1/§5; state that `fixtures/sample-java-project` is copied into a harness-created clean `$SRC` Git repository (the fixture directory itself is not passed as `--repo`); replace `vibe review show <task-id>` (wrong — the CLI's `review show` takes a `<review-id>`, `cli/vibe/main.go:839`) with the two-step *"take `review_id` from `vibe workflow show <task-id> -json`, then `vibe review show <review-id>`; inspect the diff via `diff_artifact_id` → `artifact.get`/`blob.get` or the worktree"*; note codex-must-not-commit; note the checkpoint carries wc/agent_run/patch-ref but not task/provider/diff-artifact under the M1 flow (invariant 8), and that its canonical-event selection may be empty; note that post-release Workspace lookup uses the public `workspace_id` captured while allocated and that `agent runtime` means the post-DONE agent-harness runtime restart, not recovery of an in-flight codex process. State explicitly that the read-projection conclusion is conditional on retaining that public workspace id; M1.9 does not close task-only navigation for an already-released workspace.
+- **§10**: replace the task text with §3 above and replace the run snippet with the exact prompt/build/test arguments and WAITING_REVIEW client-disconnect protocol from §4.1/§5; state that `fixtures/sample-java-project` is copied into a harness-created clean `$SRC` Git repository (the fixture directory itself is not passed as `--repo`); replace `vibe review show <task-id>` (wrong — the CLI's `review show` takes a `<review-id>`, `cli/vibe/main.go:839`) with the two-step *"take `review_id` from `vibe workflow show <task-id> -json`, then `vibe review show <review-id>`; inspect the diff via `diff_artifact_id` → `artifact.get`/`blob.get` or the worktree"*; note codex-must-not-commit; note the checkpoint carries wc/agent_run/patch-ref but not task/provider/diff-artifact under the M1 flow (invariant 8), and that its canonical-event selection may be empty; note that `agent runtime` means the post-DONE agent-harness runtime restart, not recovery of an in-flight codex process; note that the post-restart Console view is reconstructed from `task_id` alone (M1.8.5's `workspace.get{work_context_id}` returns the released workspace) and the ADR-002 read-projection result is **unconditional**.
+- **§13**: add a done row for **M1.8.5** (`workspace.get{work_context_id} finds released workspaces` — done, tag `m1.8.5-workspace-by-context-recovery`, merge `4be9939`), immediately before the M1.9 row, since M1.9's ADR-002 result depends on it.
 - **§2**: expand each of G1–G6 with the concrete assertion from §7 (currently one-line criteria).
 - **§13**: the implementation commit must make the M1.9 row's terminal marker
   explicitly `in-progress` (the current row has no terminal marker); only after
   the real run and final whitelist pass may the operator change that exact marker
   to `done` and add only the prescribed §13 result summary: point to
-  `docs/M1-RESULT.md` for the recorded "M1 PASSED" line and retain the
-  conditional ADR-002 wording. This marker transition is part of the four-file result
+  `docs/M1-RESULT.md` for the recorded "M1 PASSED" line and the unconditional
+  ADR-002 result. This marker transition is part of the four-file result
   commit, never an implementation-side success default.
 
 The exact §13 line sequence is pinned here so the implementation and result
@@ -454,15 +449,15 @@ implementation commit:
 M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证 + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED — in-progress
 
 result commit:
-M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证 + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED — done；result: docs/M1-RESULT.md；ADR-002 read-projection result: CONDITIONAL — public workspace_id bridge verified；task-only released-workspace navigation remains open
+M1.9  完整 qualification（§10）+ kill runtime + restart kernel + recovery 验证 + Console 读投影充分性验收（§10，证伪 ADR-002 的"无需返工"结论）→ G1–G6 全过 → M1 PASSED — done；result: docs/M1-RESULT.md；ADR-002 read-projection result: PASS（M1.9 前发现一处小缺口 — workspace.get 不按 work_context_id 返回已释放 workspace — 已由 M1.8.5 修掉；此后 cold-start task-only Console 路径能完整重建视图，含已释放 workspace）
 ```
 
 Only the terminal marker and the prescribed result suffix change between the
-two lines; the result suffix must not claim unconditional ADR-002 closure.
+two lines.
 
 ### 4.4 `docs/M1-RESULT.md` (new, produced by the run)
 
-Written **only** when `qualify-m1.sh` reaches all-green. Contains: `QUAL_BASE`, `SRC_BASE`, `WORKSPACE_ID`, the run's real ids (task, wc, agent_run, diff artifact, both tool runs, review, session), the codex/Maven/Java/Go versions, the six G-gate evidence blocks with actual values, the D1–D4 expected-red/restore evidence plus the D5 G4 evidence, the observed canonical-event count (including the permitted zero), the Review snapshot identity limitation, the public projection selector limitation, and two explicit verdicts: `M1 ENGINEERING VERTICAL SLICE: PASSED` and `ADR-002 read-projection result: CONDITIONAL — public-id bridge verified; task-only released-workspace navigation remains open`. The transient `$DATA/full-suite.log` is not copied verbatim; the renderer copies only fixed gate labels, exit statuses, and the required result facts. It must contain no client token, authentication material, or raw prompt/transcript bytes. This file is the durable proof of the M1 qualification result; it must not say that the unqualified ADR-002 "无需返工" claim is closed. A verification rerun supplies `M19_RESULT_PATH` pointing outside the repository and must not overwrite the committed canonical result.
+Written **only** when `qualify-m1.sh` reaches all-green. Contains: `QUAL_BASE`, `SRC_BASE`, the run's real ids (task, wc, agent_run, diff artifact, both tool runs, review, session), the codex/Maven/Java/Go versions, the six G-gate evidence blocks with actual values, the D1–D4 expected-red/restore evidence plus the D5 G4 evidence, the observed canonical-event count (including the permitted zero), the Review snapshot identity limitation (invariant 11), and two explicit verdicts: `M1 ENGINEERING VERTICAL SLICE: PASSED` and `ADR-002 read-projection result: PASS — the cold-start task-only Console path reconstructs the full WorkContext view including the released workspace, via M1.8.5's workspace.get{work_context_id}`. The transient `$DATA/full-suite.log` is not copied verbatim; the renderer copies only fixed gate labels, exit statuses, and the required result facts. It must contain no client token, authentication material, or raw prompt/transcript bytes. This file is the durable proof of the M1 qualification result. A verification rerun supplies `M19_RESULT_PATH` pointing outside the repository and must not overwrite the committed canonical result.
 
 ## 5. WAITING_REVIEW / client-disconnect protocol
 
@@ -487,11 +482,14 @@ Written **only** when `qualify-m1.sh` reaches all-green. Contains: `QUAL_BASE`, 
    WAITING_REVIEW is seen → FAIL, dump wf.out.
 3. while the workflow is still WAITING_REVIEW and before any decision, as m1-dev:
      call public `workspace.get{work_context_id}`; require exactly one
-     `ALLOCATED` Workspace whose `work_context_id`, `repo`, and
-     `base_commit` agree with the WorkContext and `SRC_BASE`; require a
-     non-empty `path`; save the full response as
-     `$DATA/projections/workspace.pre-release.json` and its `workspace_id` as
-     WORKSPACE_ID. This is the only source of the later workspace selector.
+     `ALLOCATED` Workspace whose `work_context_id`, `repo`, and `base_commit`
+     agree with the WorkContext and `SRC_BASE`, and a non-empty `path`; save
+     the full response as `$DATA/projections/workspace.pre-release.json`.
+     This is **auxiliary evidence** — it records that the same
+     `workspace.get{work_context_id}` query returns the workspace as
+     `ALLOCATED` before release and (step 7 / the post-restart projection)
+     as `RELEASED`+`preserve` after. It is not the source of any later
+     selector: every later `workspace.get` is keyed by `work_context_id`.
 4. REVIEW_ID: `vibe workflow show <task> -json` piped to a python3 one-liner
    that loads `events[]`, selects the one event whose `type` is
    `review.requested` and whose payload has the current `task_id` and `work_context_id`,
@@ -546,20 +544,22 @@ Written **only** when `qualify-m1.sh` reaches all-green. Contains: `QUAL_BASE`, 
      stage is DONE, then until stage is SEALED; the subsequent seven-projection
      fetch, whose `session.query` is the projection-library call, must return
      exactly one SessionRecord. Separately poll
-     `workspace.get{workspace_id=WORKSPACE_ID}` until it reports `RELEASED`.
-     `SEALED` is emitted before the workflow's final `workspace.release`, so
-     seeing the stage alone is not sufficient.
+     `workspace.get{work_context_id}` until it reports `RELEASED`+`preserve`
+     (after M1.8.5 this query returns the released workspace). `SEALED` is
+     emitted before the workflow's final `workspace.release`, so seeing the
+     stage alone is not sufficient.
      Use `min(5 minutes, remaining time to the step-1 deadline)`; five minutes
      is longer than the local `session.seal` child deadline while the shared
      outer bound prevents the script from waiting after the workflow command's
      30-minute deadline has expired.
 8. restart_kernel      ← kills kernel + all plugin children, restarts, waits query-ready
 9. set `CONSOLE_PROJECTION_SNAPSHOT_DIR="$DATA/projection-snapshots"` and call
-   `assert_console_projection live "$TASK" "$WORKSPACE_ID"`; this single live
-   call fetches exactly the 7 snapshots, saves them under the fixed filenames,
-   and asserts them. It uses WORKSPACE_ID for `workspace.get` and the wc
-   returned by `work.get` for the other six. Run §7 G1..G6 + §6 致残 against
-   those saved snapshots; do not issue a second live projection fetch.
+   `assert_console_projection live "$TASK"`; this single live call fetches
+   exactly the 7 snapshots, saves them under the fixed filenames, and asserts
+   them. It keys `work.get` by `$TASK` and every other query — `workspace.get`
+   included — by the `work_context_id` in the `work.get` response. Run §7
+   G1..G6 + §6 致残 against those saved snapshots; do not issue a second live
+   projection fetch.
 ```
 
 If step 7 never reaches DONE after a valid decide, the workflow **did** get cancelled by the disconnect → invariant 5 fails → M1.9 FAIL.
@@ -574,7 +574,7 @@ If step 7 never reaches DONE after a valid decide, the workflow **did** get canc
 | D4 | first run the unmodified G6 patch-apply check and record it green; take the blob behind `RecoveryCheckpoint.tracked_patch_ref`, require the first hunk to contain a context line, and in a temporary copy replace that context line's payload with a sentinel line that cannot occur in **SRC** while preserving the leading context marker and newline; run `git apply --check` against a clean checkout of **SRC** at `base_commit` | the unmodified check is green; the deliberately impossible context makes `git apply --check` exit non-zero (proves G6 actually applies the patch, not just reads the ref, without relying on Git's offset/fuzz behavior); the original check is green again after the temporary copy is removed |
 | D5 | no additional mutation: retain the full-suite `scripts/qualify-done-integrity.sh` ×3 output as the G4/D5 evidence; its own M-S1..M-S4 sweep stands | the recorded G4/D5 sub-sweep is green; do not run a fourth copy here |
 
-Each mutation operates on a **copy** of the seven fetched projection JSON files, never on live state. The `workspace.get` snapshot is the post-restart response selected by WORKSPACE_ID. The unchanged `CONSOLE_PROJECTION_POLICY` remains outside the mutation directory. D4 downloads the patch bytes through `blob.get` and corrupts only a temporary local copy by replacing the first hunk's first context line with a sentinel such as ` __M19_IMPOSSIBLE_CONTEXT__` (the leading single space is retained); if no context line exists, D4 fails because this deterministic mutation cannot be applied to this qualification patch. It never overwrites an immutable blob or calls a write capability. Before corrupting D4, the normal G6 patch-apply procedure must pass; after the expected-red check, deleting the temporary copy and rerunning the same normal procedure must pass again. After each D1–D3 negative assertion the mutated directory is discarded and the unmodified snapshot is passed through the helper again; the helper must return green before the next mutation. `qualify-m1.sh` itself only ever reads live state, so a normal run leaves nothing mutated. `git apply --check` in D4 is run as `… || rc=$?` and the non-zero asserted explicitly (invariant 9).
+Each mutation operates on a **copy** of the seven fetched projection JSON files, never on live state. The `workspace.get` snapshot is the post-restart response keyed by `work_context_id` (M1.8.5). The unchanged `CONSOLE_PROJECTION_POLICY` remains outside the mutation directory. D4 downloads the patch bytes through `blob.get` and corrupts only a temporary local copy by replacing the first hunk's first context line with a sentinel such as ` __M19_IMPOSSIBLE_CONTEXT__` (the leading single space is retained); if no context line exists, D4 fails because this deterministic mutation cannot be applied to this qualification patch. It never overwrites an immutable blob or calls a write capability. Before corrupting D4, the normal G6 patch-apply procedure must pass; after the expected-red check, deleting the temporary copy and rerunning the same normal procedure must pass again. After each D1–D3 negative assertion the mutated directory is discarded and the unmodified snapshot is passed through the helper again; the helper must return green before the next mutation. `qualify-m1.sh` itself only ever reads live state, so a normal run leaves nothing mutated. `git apply --check` in D4 is run as `… || rc=$?` and the non-zero asserted explicitly (invariant 9).
 
 ## 7. G1–G6 evidence matrix
 
@@ -584,18 +584,18 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 | **G2** Real Execution | The M1.9 policy requires `AgentRun.provider == "codex"`; `workspace.status == "RELEASED"`, `workspace.release_policy == "preserve"`, `workspace.base_commit == SRC_BASE`, and the preserved worktree's current `HEAD == SRC_BASE`; it has a non-empty `git diff HEAD`; its changed+untracked path set is exactly the policy's two scoped paths and its untracked set is empty (Maven `target/` is ignored in the SRC baseline); `Artifact{kind=diff}.summary.files[]` matches that set. Outside the projection library, the harness resolves `Artifact.blob_uri` with `blob.get` and byte-compares the patch with the preserved worktree's `git diff HEAD`; that filesystem check never fills a projection field. The harness also reads only those two changed source files and, after whitespace normalization, requires `Calculator.java` to contain `Math.addExact` and `CalculatorTest.java` to contain the two exact overflow calls plus `ArithmeticException`; this is a task-semantic guard, not projection backfill. Codex stdout is **not** consulted. |
 | **G3** Truth Chain | The exact join and cardinality checks in §4.2 assertion 3 hold under the M1.9 policy: Task / WorkContext / Workspace / AgentRun / Artifact(diff) / ToolRun(build) / ToolRun(test) / EvidenceRef×2 / Review / SessionRecord all belong to the same wc; every cross-reference resolves to the expected sibling; Review is the approved review for this AgentRun and diff; AC1/AC2/AC3 are each present exactly once and satisfied; build/test argv and outcomes are exact; the Review snapshot has exactly the two ToolRun-id entries required by the shipped M1.6 wiring. |
 | **G4** DONE Integrity | the full-suite gate's `bash "scripts/qualify-done-integrity.sh"` ×3 (each ending `DONE-INTEGRITY QUALIFICATION: OK`) **is** G4 — run once, up front. The happy-path DONE of this milestone does **not** substitute for it. |
-| **G5** Persistence | After DONE + seal, `restart_kernel` (kernel + all plugin processes killed and restarted). Then re-query all seven projections, using WORKSPACE_ID for `workspace.get` and the wc from `work.get` for the other six. Resolve `AgentRun.raw_session_ref`, `Artifact.blob_uri`, `SessionRecord.archive_ref`, `RecoveryCheckpoint.tracked_patch_ref`, and both ToolRun stdout/stderr URIs via `blob.get`. The first four must resolve to non-empty bytes; tool stdout/stderr blobs must resolve even when a successful command produced zero bytes. Parse the archive's `session_record`, `recovery_checkpoint`, and `canonical_events` members; the nested recovery checkpoint must equal the public checkpoint, nested session identity/event-selection fields must agree with the public SessionRecord, and nested `archive_ref`/`archive_hash` must be empty strings because the nested record was serialized before those fields were filled. Each nested canonical event's `id`/`sha256` must match the selection arrays in order, and `canonical_events` length must equal the checkpoint selection's `event_count`. SHA256 of the archive bytes must equal `SessionRecord.archive_hash`. |
+| **G5** Persistence | After DONE + seal, `restart_kernel` (kernel + all plugin processes killed and restarted). Then re-query all seven projections keyed only by `task_id` (`work.get`) and the wc it returns (`workspace.get` included — M1.8.5 returns the released workspace by context). Resolve `AgentRun.raw_session_ref`, `Artifact.blob_uri`, `SessionRecord.archive_ref`, `RecoveryCheckpoint.tracked_patch_ref`, and both ToolRun stdout/stderr URIs via `blob.get`. The first four must resolve to non-empty bytes; tool stdout/stderr blobs must resolve even when a successful command produced zero bytes. Parse the archive's `session_record`, `recovery_checkpoint`, and `canonical_events` members; the nested recovery checkpoint must equal the public checkpoint, nested session identity/event-selection fields must agree with the public SessionRecord, and nested `archive_ref`/`archive_hash` must be empty strings because the nested record was serialized before those fields were filled. Each nested canonical event's `id`/`sha256` must match the selection arrays in order, and `canonical_events` length must equal the checkpoint selection's `event_count`. SHA256 of the archive bytes must equal `SessionRecord.archive_hash`. |
 | **G6** Recovery | `RecoveryCheckpoint.tracked_patch_ref` resolves via `blob.get`; a fresh `git clone` of **SRC** (the run's own clone, not `fixtures/sample-java-project` — `base_commit` is a commit in SRC) + `git checkout <base_commit>` + `git apply --check` + `git apply` succeeds; the resulting tracked changed path set is exactly the two scoped files and the untracked set is empty. `RecoveryCheckpoint.{work_context_id, agent_run_id, base_commit}` and `workspace.base_commit` match the projections. Field-non-empty alone is **not** sufficient — the patch must actually apply. |
 
 ## 8. Acceptance (what "M1.9 done" means)
 
-"M1 PASSED" is not just this one scenario — it is the whole M1 suite green **plus** the real end-to-end run. In this document that label means the M1 vertical-slice gates passed; it must not be read as an unconditional closure of ADR-002's task-only released-workspace navigation claim.
+"M1 PASSED" is not just this one scenario — it is the whole M1 suite green **plus** the real end-to-end run. In this document that label means the M1 vertical-slice gates passed. ADR-002's read-projection sufficiency claim is closed **unconditionally** here: with M1.8.5 merged, the qualification reconstructs the whole WorkContext view — released workspace included — from `task_id` alone.
 
 1. **Full regression green first** (the script gates on this before attempting the real run): `bash "scripts/build.sh"`; `(cd "plugins" && go test "./...")`; `(cd "cli" && go test "./...")`; `(cd "kernel" && go test "./...")`; `(cd "kernel" && bash "scripts/build.sh" >/dev/null && python3 "tests/integration/m05_qualification.py")` → PASSED; `bash "scripts/check-arch.sh"` → `31 contracts` / `10 manifests` / `ARCH CHECKS OK`; `bash "scripts/smoke.sh"` ×5 → `M1 SMOKE: PASSED`, no orphans; `bash "scripts/qualify-done-integrity.sh"` ×3 → `DONE-INTEGRITY QUALIFICATION: OK`.
 2. `M19_QUAL_BASE=<dispatch baseline> VIBE_REAL_PROVIDER=codex bash "scripts/qualify-m1.sh"` on the dev machine prints `M1 ENGINEERING VERTICAL SLICE: PASSED`, with G1–G6 evidence in the output. The script must not replace `M19_QUAL_BASE` with the current `HEAD`.
 3. The 致残 sweep D1–D4 each reproduce the expected failure, then restore green; G4/D5's sub-sweep passes.
 4. The first run writes `docs/M1-RESULT.md` before the PASSED line; that line is only the run-level result, not the final milestone claim. The implementation commit must contain exactly one M1.9 §13 row marked `— in-progress`; the reviewer then changes that marker to `— done` and adds only the prescribed §13 result summary, stages all four allowed paths (`scripts/qualify-m1.sh`, `scripts/lib/console-projection.sh`, `docs/M1-DESIGN.md`, `docs/M1-RESULT.md`), commits them with `[M1资格][chore][记录M1.9验收结果]`, repeats the commit-level G1 check, and requires a clean `git status --porcelain --untracked-files=all`.
-5. `docs/M1-DESIGN.md` §2 / §10 / §13 reconciled; §13 is changed to `done` only after the real run succeeds, and the documented ADR-002 result remains explicitly conditional on the retained public `workspace_id`.
+5. `docs/M1-DESIGN.md` §2 / §10 / §13 reconciled (§13 also gains the M1.8.5 done row); §13's M1.9 row is changed to `done` only after the real run succeeds, and the documented ADR-002 read-projection result is the unconditional PASS wording from §4.3.
 6. Reviewer independently re-runs `M19_RESULT_PATH="$(mktemp -t m1.9-result.XXXXXX)" M19_QUAL_BASE=<dispatch baseline> VIBE_REAL_PROVIDER=codex bash "scripts/qualify-m1.sh"` once and re-does the 致残 sweep; the harness hashes the tracked canonical `docs/M1-RESULT.md` before and after and requires the hash to be unchanged (校验者≠生产者).
 7. Tag `m1.9-qualification` created on the commit that carries all of the above (manual `git tag`, per the script's printed command), then verified with `git rev-parse "m1.9-qualification^{commit}"` equal to `HEAD`.
 8. `git diff --name-only "$QUAL_BASE" HEAD -- "kernel"` empty; no plugin/contract change; the changed-file set matches the exact four paths in G1.
@@ -605,8 +605,7 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 - `work.query@1` / context enumeration — Console v1 (subsystem B), not M1.9.
 - Any Console/TUI/GUI code — subsystem B.
 - **Enriching the `session.seal` call** so `RecoveryCheckpoint` carries `task_id` / `provider` / `diff_artifact_id` — the session plugin already accepts these; wiring `engineering-workflow` to send them is a ~3-line change but it makes M1.9 no longer zero-plugin-change. Deferred (M2, or a standalone follow-up). M1.9 asserts view consistency from the other projections instead (invariant 8).
-- **Changing workspace query semantics** or adding an `active_workspace_ref` write to work-registry — M1.9 keeps the existing plugin behavior. The qualification explicitly captures the public `workspace_id` while allocated and uses that id after release; it does not claim that a post-release Console can rediscover the workspace from `task_id`/`work_context_id` alone.
-- **Closing ADR-002 unconditionally** — M1.9 records the seven-projection join as `CONDITIONAL`; if ADR-002 requires task-only navigation of a released workspace, that remains an open product/API decision and cannot be silently converted into a PASS by this harness.
+- **Changing workspace query semantics** or adding an `active_workspace_ref` write to work-registry — that change was **M1.8.5** (`workspace.get{work_context_id}` now returns a `RELEASED`+`preserve` workspace), already merged and tagged. M1.9 itself makes no plugin change; it relies on M1.8.5's behavior and asserts it end-to-end.
 - **Repairing workflow correlation/event-id wiring for session archives** — M1.9 does not modify `engineering-workflow` or `session`; it verifies the current archive shape and permits an empty canonical-event selection. A later milestone may pass `correlation_id`/`event_ids` explicitly and then strengthen this assertion to require selected events.
 - **Repairing Review evidence-snapshot identity wiring** — M1.9 does not change the `engineering-workflow` capability shape or make `AttachEvidence` return an id; it records the shipped ToolRun-id snapshot behavior and independently validates the WorkContext EvidenceRefs. A later workflow change may make `evidence_snapshot[].evidence_ref_id` carry the actual EvidenceRef id.
 - Auto-resume / reconciler / persistent orchestration state — M2 (§7 of M1-DESIGN).
@@ -621,8 +620,7 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 - codex is non-deterministic: a run can fail because codex produced a bad patch or failing tests. That is a *real* negative result (the gate correctly refuses DONE), not a harness bug — re-run. The harness must surface *which* stage failed (agent / build / test / review / gate).
 - Java 8 + JUnit 4 fixture; `Math.addExact` is Java 7+, fine.
 - Maven downloads plugins on first run; the dev machine must have a warm `~/.m2` or network. Recorded as a precondition, not worked around.
-- The current workspace API has no released-by-context selector. The stable-id capture is a qualification bridge, not a new production projection or a claim that the future Console's task-only navigation is solved.
-- Consequently, the result has two separate meanings: G1–G6 and the real workflow may be `PASSED`, while the ADR-002 projection conclusion is `CONDITIONAL` until a released workspace can be selected from the Console's intended navigation inputs.
+- The qualification proves the cold-start task-only Console navigation path for **this one shape** of finished task (one workspace, released with `preserve`). M1.8.5's deterministic multi-candidate selection (multiple allocations, mixed policies) is covered by M1.8.5's own unit tests, not re-exercised here.
 - Under the current M1.6 workflow wiring, the `session.seal` payload carries no `correlation_id`/`event_ids`, so `canonical_event_selection` can be empty even though the archive and checkpoint are durable. M1.9 checks cardinality and archive consistency; selected-event completeness is deferred with the wiring fix.
 
 ## 11. Drift guardrails
@@ -636,7 +634,8 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
   and the scratch-repository `SRC_BASE` must be resolved independently.
 - Projection expectations must come only from the explicit policy file; no
   private state, journal payload, observed response, or filesystem check may
-  backfill a projection field. The ADR-002 conclusion must remain conditional.
+  backfill a projection field. Every projection is keyed by `task_id` or the
+  `work_context_id` it yields — no `workspace_id` selector anywhere.
 
 ### Reference inheritance map
 
@@ -665,7 +664,7 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 | `kernel-harness.sh` 的 `DATA`/`SOCK`/EXIT trap | safe to reuse | 只能管理本次 harness 生命周期；必须先停止 workflow client 再清理 |
 | CLI `workflow run` 的 provider 默认 `mock` | must override | 生产和验证命令都显式传 `-provider codex`，并保留环境门控 |
 | CLI `splitArgv` 的空命令默认 `sh -c true` | must not reuse | build/test 必须是固定 Maven argv，不能依赖 CLI 默认值 |
-| `workspace.get{work_context_id}` | must wrap | 只在 ALLOCATED 阶段取一次并保存公开 `workspace_id`；RELEASED 阶段只按该 id 查询 |
+| `workspace.get{work_context_id}` | safe to reuse (M1.8.5) | 全程按 `work_context_id` 查询；M1.8.5 起 ALLOCATED 阶段返回 ALLOCATED workspace、RELEASED+preserve 阶段返回该 released workspace。不预捕获、不使用 `workspace_id` selector |
 | `session.seal` 的 payload 默认 correlation=wc、空 event_ids | safe to reuse, but assert explicitly | 不声称事件选择非空；只校验选择数组和 archive 的一致性 |
 | `artifact.collect_diff` / `buildCheckpoint` 的默认 base=`HEAD` | safe to reuse | scratch repo 必须先建立并固定 `SRC_BASE`；codex 不得 commit |
 
@@ -674,7 +673,7 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 | 边界 | caller must provide | service derives | internal only |
 |---|---|---|---|
 | `workflow.engineering.run@1` | `task_id`、prompt、provider、base_ref、固定 build/test argv、deadline | wc、repo、workspace、AgentRun/Artifact/ToolRun/Review/Session ids | delegation、request correlation、journal records |
-| 七个 projection query | 一个明确 selector：`task_id`或`workspace_id`或`work_context_id` | 各服务返回自己的 projection，不能从别的 query 拼写字段 | service/authority routing 由 harness 固定，不进 policy |
+| 七个 projection query | 一个明确 selector：`work.get` 用 `task_id`，其余六个（含 `workspace.get`）用其响应里的 `work_context_id`；M1.9 不使用 `workspace_id` selector | 各服务返回自己的 projection，不能从别的 query 拼写字段 | service/authority routing 由 harness 固定，不进 policy |
 | `blob.get` | 已由 projection 返回的 URI | blob 内容 | 仅 outer harness 做 byte/hash/apply 校验，library 不调用 |
 | `session.seal@1` | 当前 workflow 仅传 wc、agent_run、workspace_path | checkpoint 的 Git/patch/archive 字段 | task/provider/diff/correlation/event ids 不得由 harness 私塞进 projection |
 
