@@ -157,3 +157,47 @@ func TestGetBySelector(t *testing.T) {
 		t.Fatalf("no selector must be INVALID, got %+v", perr)
 	}
 }
+
+func TestGetHandlerByContextReturnsReleasedWorkspace(t *testing.T) {
+	repo, _ := scratchRepo(t)
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	ws := allocate(t, s, dir, repo, "wc-1")
+
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]string{"workspace_id": ws.ID, "policy": "preserve"})
+	if _, perr := releaseHandler(s)(env); perr != nil {
+		t.Fatalf("release: %+v", perr)
+	}
+
+	out, perr := getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"work_context_id": "wc-1"})})
+	if perr != nil {
+		t.Fatalf("get by context after release: %+v", perr)
+	}
+	var r struct {
+		Workspace WorkspaceRef `json:"workspace"`
+	}
+	b, _ := json.Marshal(out)
+	_ = json.Unmarshal(b, &r)
+	if r.Workspace.ID != ws.ID || r.Workspace.Status != StatusReleased {
+		t.Fatalf("want the released workspace, got %+v", r.Workspace)
+	}
+}
+
+func TestGetHandlerByContextNotFoundAfterDeleteRelease(t *testing.T) {
+	repo, _ := scratchRepo(t)
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	ws := allocate(t, s, dir, repo, "wc-1")
+
+	env := fencedEnv(t, dir)
+	env.Payload = protocol.NewPayload(map[string]string{"workspace_id": ws.ID, "policy": "delete"})
+	if _, perr := releaseHandler(s)(env); perr != nil {
+		t.Fatalf("release: %+v", perr)
+	}
+
+	_, perr := getHandler(s)(protocol.Envelope{Payload: protocol.NewPayload(map[string]string{"work_context_id": "wc-1"})})
+	if perr == nil || perr.Code != "NOT_FOUND" {
+		t.Fatalf("want NOT_FOUND after delete-policy release with no other workspace, got %+v", perr)
+	}
+}
