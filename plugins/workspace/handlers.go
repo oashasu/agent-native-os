@@ -127,7 +127,7 @@ func getHandler(s *Store) pluginhost.Handler {
 		if q.WorkspaceID != "" {
 			ref, ok = s.GetByID(q.WorkspaceID)
 		} else {
-			ref, ok = s.GetActiveByContext(q.WorkContextID)
+			ref, ok = s.GetByContext(q.WorkContextID)
 		}
 		if !ok {
 			return nil, &protocol.Error{Code: "NOT_FOUND", Message: ErrNotFound.Error()}

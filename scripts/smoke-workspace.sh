@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # M1.2 smoke fragment: allocate a worktree for a WorkContext, verify it, survive a
-# kernel restart, release with policy=preserve, confirm the worktree is kept.
+# kernel restart, release with policy=preserve, confirm the worktree is kept. Also
+# (M1.8.5): after that release, restart the kernel again and confirm the read-only
+# local-cli identity's workspace.get{work_context_id} still finds it (status RELEASED).
 set -euo pipefail
 V=".bin/vibe -socket $SOCK -identity m1-dev -token $DEV_TOKEN"
 
@@ -39,3 +41,20 @@ $V workspace release "$WS_ID" -policy preserve | grep -q 'RELEASED' || { echo "F
 [ -d "$WT_PATH" ] || { echo "FAIL: preserve policy removed the worktree"; exit 1; }
 
 echo "M1.2 WORKSPACE SMOKE: OK"
+
+VQ=".bin/vibe -socket $SOCK -identity local-cli -token $TOKEN"   # read-only query identity — see Task 4 Interfaces
+restart_kernel
+
+byctx_out=""
+for _ in $(seq 1 50); do
+  byctx_out="$($VQ workspace show -work-context "$WC_ID" 2>/dev/null || true)"
+  case "$byctx_out" in *"id $WS_ID"*"status RELEASED"*) break ;; esac
+  sleep 0.1
+done
+case "$byctx_out" in
+  *"id $WS_ID"*"status RELEASED"*) : ;;
+  *) echo "FAIL: work_context_id lookup after release+restart did not return the released workspace: $byctx_out"; exit 1 ;;
+esac
+[ -d "$WT_PATH" ] || { echo "FAIL: preserve policy worktree missing after second restart"; exit 1; }
+
+echo "M1.8.5 WORKSPACE-BY-CONTEXT-RECOVERY SMOKE: OK"

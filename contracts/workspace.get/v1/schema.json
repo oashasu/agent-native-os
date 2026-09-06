@@ -3,6 +3,7 @@
   "contract": "workspace.get@1",
   "version": "1.0.0",
   "kind": "query",
+  "description": "A work_context_id lookup returns the workspace to use for that context: the currently ALLOCATED one if any, else the most recently allocated RELEASED workspace whose release policy was 'preserve'. Callers must check response.workspace.status — the result may be RELEASED, not just ALLOCATED. A workspace_id lookup is unaffected.",
   "compatibility": "backward-within-major",
   "request": {"type":"object","additionalProperties":false,"properties":{"workspace_id":{"type":"string"},"work_context_id":{"type":"string"}},"required":[]},
   "response": {"type":"object","additionalProperties":true,"properties":{"workspace":{"type":"object"}},"required":["workspace"]}
