@@ -198,6 +198,57 @@ func (s *Store) GetActiveByContext(wcID string) (WorkspaceRef, bool) {
 	return cloneRef(best), true
 }
 
+// GetByContext returns the workspace a cold-start caller holding only wcID
+// should use: the most recently allocated ALLOCATED workspace if one exists,
+// else the most recently allocated RELEASED+preserve workspace. A
+// RELEASED+delete workspace is never a candidate — its worktree is gone.
+// The tiebreak (AllocatedAt desc, then ReleasedAt desc, then ID asc) is
+// evaluated over an explicit slice, never over map iteration order, so the
+// result is deterministic even when timestamps collide.
+func (s *Store) GetByContext(wcID string) (WorkspaceRef, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var allocated, preserved []*WorkspaceRef
+	for _, ref := range s.byID {
+		if ref.WorkContextID != wcID {
+			continue
+		}
+		switch {
+		case ref.Status == StatusAllocated:
+			allocated = append(allocated, ref)
+		case ref.Status == StatusReleased && ref.ReleasePolicy == "preserve":
+			preserved = append(preserved, ref)
+		}
+	}
+	candidates := allocated
+	if len(candidates) == 0 {
+		candidates = preserved
+	}
+	if len(candidates) == 0 {
+		return WorkspaceRef{}, false
+	}
+	best := candidates[0]
+	for _, ref := range candidates[1:] {
+		if refLess(best, ref) {
+			best = ref
+		}
+	}
+	return cloneRef(best), true
+}
+
+// refLess reports whether b should replace a as the current best under the
+// AllocatedAt-desc / ReleasedAt-desc / ID-asc order. ID is a pure stable
+// tiebreak with no time meaning.
+func refLess(a, b *WorkspaceRef) bool {
+	if a.AllocatedAt != b.AllocatedAt {
+		return b.AllocatedAt > a.AllocatedAt
+	}
+	if a.ReleasedAt != b.ReleasedAt {
+		return b.ReleasedAt > a.ReleasedAt
+	}
+	return b.ID < a.ID
+}
+
 func cloneRef(ref *WorkspaceRef) WorkspaceRef {
 	if ref == nil {
 		return WorkspaceRef{}
