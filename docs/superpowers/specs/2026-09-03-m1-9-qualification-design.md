@@ -1,6 +1,6 @@
 # M1.9 — M1 Qualification (real provider end-to-end + G1–G6) — Design
 
-**Status:** rev11 for review (2026-09-06) — updated after **M1.8.5** landed (`m1.8.5-workspace-by-context-recovery`, merge `4be9939`): `workspace.get{work_context_id}` now deterministically returns a `RELEASED`+`preserve` workspace, so the `workspace_id`-bridge workaround this spec previously carried is gone and the ADR-002 read-projection result becomes **unconditional**.
+**Status:** rev12 for review (2026-09-07) — updated after **M1.8.5** landed (`m1.8.5-workspace-by-context-recovery`, merge `4be9939`): `workspace.get{work_context_id}` now returns the `ALLOCATED` workspace if one exists, else — after release with `preserve`, when no `ALLOCATED` one remains — the released workspace. The `workspace_id`-bridge workaround this spec previously carried is gone and the ADR-002 read-projection result becomes **unconditional**.
 **Spec source:** `docs/M1-DESIGN.md` §2 (G1–G6), §10 (qualification scenario), §13 (milestone M1.9), ADR-002 (Console read-projection sufficiency acceptance), ADR-003 (frontend deferred — unaffected here).
 **Milestone position:** after M1.8 (`m1.8-real-provider-adapter`; post-merge doc reconciliation `c640957`) and M1.8.5 (`m1.8.5-workspace-by-context-recovery`, `4be9939`), last milestone of M1. On success → **"M1 ENGINEERING VERTICAL SLICE: PASSED"**, then M2.
 **Execution:** dev-machine only: one production run creates the durable result, followed by one independent verification rerun. Neither is dispatched or run in CI. The script records the installed codex-cli version at runtime (the M1.8 baseline was 0.152.1), plus the required Maven 3.9.12 / Java 8 versions and the installed Go version.
@@ -390,10 +390,12 @@ observed-field backdoor or a path-escaping input.
 
 Navigation mirrors the Console's first lookup: `work.get {task_id}` returns both the
 Task and its WorkContext, so the `work_context_id` for the other queries comes from
-that response. The released-workspace exception is explicit: `workspace.get` cannot
-select a released workspace by `work_context_id` in the current implementation, so
-the harness captures the public workspace id before release and reuses that selector
-after restart. The library never accepts a pre-resolved `work_context_id`, reads a
+that response. `workspace.get{work_context_id}` is queried the same way as the other
+five: after M1.8.5 it returns the currently `ALLOCATED` workspace if one exists, else
+the most recently allocated `RELEASED`+`preserve` workspace — so at the post-restart
+point in the qualification (workspace already released with `preserve`, no `ALLOCATED`
+one) it returns that released workspace. No `workspace_id` is captured, before release
+or ever. The library never accepts a pre-resolved `work_context_id`, reads a
 journal event to discover the id, or reads private state. In `live` mode the
 caller supplies only the task id; the helper derives the wc from `work.get` and
 keys every other query — `workspace.get` included — by that wc. It fetches / loads
@@ -681,12 +683,14 @@ Each mutation operates on a **copy** of the seven fetched projection JSON files,
 
 ### Implementation gate verdict
 
-**ADMIT with explicit condition:**可以进入writing-plans和实现，但实现只能产生
+**ADMIT.** 可以进入 writing-plans 和实现。ADR-002 的「仅凭 task_id 发现已
+RELEASED workspace」这一条已由 M1.8.5 满足（`m1.8.5-workspace-by-context-recovery`，
+merge `4be9939`），所以 M1.9 记录的是**无条件 PASS**。实现只能产生
 `scripts/qualify-m1.sh`、`scripts/lib/console-projection.sh`、
-`docs/M1-DESIGN.md`、`docs/M1-RESULT.md`四个最终变更路径；必须实现
-`in-progress→done`标记转换、生产/验证两次run的结果隔离、七投影精确查询、
-G1-G6及D1-D5证据。若产品决策要求ADR-002必须支持“仅凭task_id发现已
-RELEASED workspace”，则本门禁立即改为**BLOCKED**，当前零插件变更方案不得宣称M1.9通过。
+`docs/M1-DESIGN.md`、`docs/M1-RESULT.md` 四个最终变更路径；M1.9 自身零
+kernel/插件/契约改动；必须实现 `in-progress→done` 标记转换、生产/验证两次
+run 的结果隔离、七投影精确查询（全部按 `task_id` / `work_context_id` 键控，
+不用 `workspace_id` selector）、G1-G6 及 D1-D5 证据。
 
 The implementation plan must pin every `-service`/`-authority`, snapshot filename,
 `M19_QUAL_BASE` handoff, result-verification command, and the atomic result-write
