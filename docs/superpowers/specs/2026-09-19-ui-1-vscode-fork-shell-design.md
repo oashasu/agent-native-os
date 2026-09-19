@@ -345,3 +345,9 @@ const MOCK: SpineProvider = {
 - **能力**：双击变更文件打开编辑器时，`hl` 高亮行（首尾行）作为初始 selection 传入 `openEditor`，`selectionRevealType: TextEditorSelectionRevealType.Center` 居中定位 —— 打开即落在改动处。
 - **API 实测**：`IEditorOptions` 已移除 `revealInCenter`，改由 `selectionRevealType` 枚举（默认即 Center）表达；`selection` 形状为 ITextEditorSelection（start 必填、end 可选）。
 - **链路**：webview 双击 → `open-file{path, hl}` → shell `openEditor({resource, options:{pinned, selection, selectionRevealType}})` —— 变更 → 编辑器 → 语义定位全程打通（IDE 复用 + Agent 数据同圆）。
+
+## 附录 H 增补：安装包产出（2026-09-19）
+
+- **产物**：`gulp vscode-darwin-arm64` 生产打包 → `/tmp/VSCode-darwin-arm64/Human Console.app`（1.3G，Contents 完整，CFBundleName=Human Console）；分发 zip `/tmp/human-console-<日期>.zip`。脚本 `scripts/s1-package-ui1-app.sh`（复用 bootstrap 环境；`--zip-only` 只打 zip）。
+- **fork patch**：`build/lib/copilot.ts` —— 上游 main 的 ripgrep shim 期待 `@github/copilot/sdk`，锁文件版本实为 `copilot-sdk`，缺失时 shim throw → 改为 warn+skip（仅影响 Copilot tgrep/ripgrep 集成，产品本体可用）。批注已写进代码；非发布环境（无 copilot SDK 需求）打包畅通。
+- **边界**：.app 未签名/公证 —— 首次打开右键→打开或 `xattr -dr com.apple.quarantine`；正式发布需 Apple Developer 证书 + dmg 工具（不在仓库范围）。
