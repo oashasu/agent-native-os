@@ -328,3 +328,9 @@ const MOCK: SpineProvider = {
 - **共享根状态**：`browser/humanContextStore.ts` 单例（curCtxId/curSessionId + `onRootChanged` + 投影器注入）——webview 投影与命令共用，单一事实来源。
 - **⌃K 换根**：`CMD_SWITCH_CTX` 从 stub → `IQuickInputService.createQuickPick`（当前 main 已无 showQuickPick，实测对象模型）列 3 工作区（title/ws·branch/stage·dirty）→ 选中 `setRoot` → `onRootChanged` 驱动 webview 全量投影（render-contexts/sync-nav/render-session）。
 - **会话走查**：`[`/`]` 接 store（当前根内循环），`a` 批准=当前会话首个待批 tool 卡（mock 语义），`r` 拒绝留 stub（等 S3 spine 通道）。两镜头均可 ⌃K；键位 when 不变。
+
+## 附录 H 增补：Changes / Review 面板（2026-09-19，fork @ e582260f，0 errors）
+
+- **数据**：`common/mockData.ts` 扩充 —— 每工作区新增 `changeset`（文件 st/add/del/hl/diff 行，5 个文件，diff 含 ctx/add/del 分类，与原型一致）与 `review`（status APPROVED/PENDING/null + reviewer + AC pass 表，t17 PENDING / t23 APPROVED / t31 无）。
+- **投影**：`project()` 全量投影增 `render-changes`（changes 数组）与 `render-review`（review 对象）；WebToShell 增 `open-file`（壳侧 stub 日志，S3 编辑器桥接见 spine 契约 revertFile 同族）。
+- **渲染**：webview Changes=文件行（A/M/D 徽章、+n/-n、点击展开 diff 着色、双击 open-file）；Review=状态徽章 + reviewer/diff + AC 卡（✓ PASS 绿 / ✗ 红）。seg 三 tab 全部有内容。
