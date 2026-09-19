@@ -1,12 +1,16 @@
-// Human Console · S1 命令骨架（补丁集，见 UI-1 spec 附录 F）
-// 命令注册 + 镜头上下文键 + 布局切换（C.1；API 已按 fork main 实测对齐：setPartHidden(hidden, Parts)）
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+// Human Console shell: two-lens commands, lens context key, layout switching (UI-1 spec appendix F / C.1).
+
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { IContextKeyService, IContextKey } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextKeyService, IContextKey, ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IWorkbenchLayoutService, Parts } from '../../../../workbench/services/layout/browser/layoutService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
-import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import {
 	CMD_ENTER_IDE, CMD_ENTER_AGENT, CMD_TOGGLE, CMD_SWITCH_CTX,
@@ -23,14 +27,16 @@ function setLens(accessor: ServicesAccessor, lens: LensKind): void {
 		lensKey = accessor.get(IContextKeyService).createKey<LensKind>(LENS_KEY, lens);
 	}
 	lensKey.set(lens);
+
 	const layout = accessor.get(IWorkbenchLayoutService);
 	const commands = accessor.get(ICommandService);
 	if (lens === 'agent') {
+		// Agent lens: hide activity/status bars, show sidebar + maximized panel (holds the webview).
 		layout.setPartHidden(true, Parts.ACTIVITYBAR_PART);
 		layout.setPartHidden(true, Parts.STATUSBAR_PART);
 		layout.setPartHidden(false, Parts.SIDEBAR_PART);
 		layout.setPartHidden(false, Parts.PANEL_PART);
-		commands.executeCommand('workbench.action.toggleMaximizedPanel'); // webview 最大化（C.1 A 案）
+		commands.executeCommand('workbench.action.toggleMaximizedPanel');
 	} else {
 		layout.setPartHidden(false, Parts.ACTIVITYBAR_PART);
 		layout.setPartHidden(false, Parts.STATUSBAR_PART);
@@ -40,27 +46,27 @@ function setLens(accessor: ServicesAccessor, lens: LensKind): void {
 }
 
 registerAction2(class EnterIdeLens extends Action2 {
-	constructor() { super({ id: CMD_ENTER_IDE, title: { value: 'IDE 镜头', original: 'IDE lens' } }); }
+	constructor() { super({ id: CMD_ENTER_IDE, title: { value: 'IDE lens', original: 'IDE lens' } }); }
 	run(accessor: ServicesAccessor) { setLens(accessor, 'ide'); }
 });
 registerAction2(class EnterAgentLens extends Action2 {
-	constructor() { super({ id: CMD_ENTER_AGENT, title: { value: 'Agent 镜头', original: 'Agent lens' } }); }
+	constructor() { super({ id: CMD_ENTER_AGENT, title: { value: 'Agent lens', original: 'Agent lens' } }); }
 	run(accessor: ServicesAccessor) { setLens(accessor, 'agent'); }
 });
 registerAction2(class ToggleLens extends Action2 {
-	constructor() { super({ id: CMD_TOGGLE, title: { value: '切换镜头', original: 'Toggle lens' } }); }
+	constructor() { super({ id: CMD_TOGGLE, title: { value: 'Toggle lens', original: 'Toggle lens' } }); }
 	run(accessor: ServicesAccessor) { setLens(accessor, curLens === 'agent' ? 'ide' : 'agent'); }
 });
 
-// ⌃K 换根（S3 全量；S1 先占位：状态切换 + 日志）
+// Switch work context (S3 wires the work index; S1 keeps a stub).
 registerAction2(class SwitchContext extends Action2 {
-	constructor() { super({ id: CMD_SWITCH_CTX, title: { value: '切换工作上下文', original: 'Switch work context' } }); }
-	run(accessor: ServicesAccessor) {
-		console.log('[human-console] switchContext @mock（S3 接入 work index）');
+	constructor() { super({ id: CMD_SWITCH_CTX, title: { value: 'Switch work context', original: 'Switch work context' } }); }
+	run(_accessor: ServicesAccessor) {
+		console.log('[human-console] switchContext (mock; S3 wires work index)');
 	}
 });
 
-// 键位（C.4 核对表）：镜头 & Agent 键
+// Keybindings (UI-1 spec appendix C.4): lens keys + agent-lens keys gated on context.
 const W = KeybindingWeight.WorkbenchContrib;
 const AGENT_WHEN = ContextKeyExpr.deserialize('humanLens == agent');
 KeybindingsRegistry.registerKeybindingRule({ id: CMD_ENTER_IDE, weight: W, primary: KeyMod.CtrlCmd | KeyCode.Digit1 });
