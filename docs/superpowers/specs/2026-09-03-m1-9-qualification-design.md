@@ -1,7 +1,7 @@
 # M1.9 — M1 Qualification (real provider end-to-end + G1–G6) — Design
 
 **Status:** rev12 for review (2026-09-07) — updated after **M1.8.5** landed (`m1.8.5-workspace-by-context-recovery`, merge `4be9939`): `workspace.get{work_context_id}` now returns the `ALLOCATED` workspace if one exists, else — after release with `preserve`, when no `ALLOCATED` one remains — the released workspace. The `workspace_id`-bridge workaround this spec previously carried is gone and the ADR-002 read-projection result becomes **unconditional**.
-**Spec source:** `docs/M1-DESIGN.md` §2 (G1–G6), §10 (qualification scenario), §13 (milestone M1.9), ADR-002 (Console read-projection sufficiency acceptance), ADR-003 (frontend deferred — unaffected here).
+**Spec source:** `docs/M1-DESIGN.md` §2 (G1–G6), §10 (qualification scenario), §13 (milestone M1.9), ADR-002 (Console read-projection sufficiency acceptance), ADR-003 (superseded by ADR-004: VSCode-fork UI carrier — unaffected here).
 **Milestone position:** after M1.8 (`m1.8-real-provider-adapter`; post-merge doc reconciliation `c640957`) and M1.8.5 (`m1.8.5-workspace-by-context-recovery`, `4be9939`), last milestone of M1. On success → **"M1 ENGINEERING VERTICAL SLICE: PASSED"**, then M2.
 **Execution:** dev-machine only: one production run creates the durable result, followed by one independent verification rerun. Neither is dispatched or run in CI. The script records the installed codex-cli version at runtime (the M1.8 baseline was 0.152.1), plus the required Maven 3.9.12 / Java 8 versions and the installed Go version.
 

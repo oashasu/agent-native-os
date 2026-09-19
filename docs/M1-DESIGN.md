@@ -2,7 +2,7 @@
 
 日期：2026-08-29
 状态：**基线冻结（Codex CONDITIONAL APPROVAL 的 4 条 blocker + 细化已写回）+ ADR-002 交互模型对齐（2026-08-29：契约面零改动；净影响 = §10 增一条可证伪的 Console 读投影验收 + §11 scope 澄清）**
-前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）、`ADR-003`（TUI/GUI 前端选择推迟 —— 对 M1 无影响）
+前置：`REVIEW-microkernel-v0.10.0.md`（A2/A3）、`FIX-PLAN`（P0 已完成）、`ADR-001`（Go）、`ADR-002`（Human Console 交互模型 —— 影响 §5.2 / §6 / §11 / §13）、`ADR-003`(已重开)、`ADR-004`（UI 载体 = VSCode 主仓库二开 —— 二者对 M1 均无影响）
 方向输入：项目所有者 + Codex（Q1=A / Q2=Real Harness + mock 双轨 / M1 Architecture Gate / 条件批准）
 
 ---
@@ -73,7 +73,7 @@ review.request ──────────► Review{status=PENDING, diff_art
         ▼
 workflow 进入 WAITING_REVIEW，发 workflow.waiting_review 事件，退避轮询 review.get(review_id)
         │
-        │   （另一个终端 / Neovim）
+        │   （另一个终端 / VSCode 工作台 —— fork 壳，见 ADR-004）
         │   vibe review show <task-id>
         │   vibe review decide <review-id> --approved --acceptance AC1=pass ...
         ▼
@@ -512,7 +512,7 @@ stale review / failed test / wrong-diff approval → 拒（§4.3 gate 合取式�
 Semantic Graph / Spring why-bean / JPA 语义模型
 GitHub PR / webhook / CI connector / Release 验证
 Knowledge Promotion / Vector Search
-Desktop UI / 完整 Neovim UI
+Desktop UI / VSCode 二开工作台（ADR-004；Neovim 仅作可选终端伴侣）
 多 Agent Team / 多 Provider 生产级支持
 自动 workflow reconciler / 自动续跑 / rework 回环
 分布式 / 多 host authority
@@ -526,7 +526,7 @@ Console 读模型（切换器一行要 agent/分支/时间 → 当前是 N+1 次
 Agent 交互式追问 / 向运行中的 agent.run 追加消息（M2 —— M1 agent.run 一次性 streaming；ADR-002）
 结构化转录卡片渲染（依赖 provider adapter 归一化 —— M1.8+ / UI 阶段；M1 只保证 raw_session_ref + agent.frame 流；ADR-002）
 本地 git 提交历史可视化（UI 阶段 —— worktree 是本地目录，IDE 工作台直接跑 git；ADR-002）
-IDE / Agent 双 lens 前端本体（UI 阶段 —— Neovim，ADR-012；本设计只保证读投影支持，ADR-002）
+IDE / Agent 双 lens 前端本体（UI 阶段 —— VSCode 官方主仓库二开，ADR-004 取代 ADR-012；本设计只保证读投影支持，ADR-002）
 ```
 
 ## 12. D1–D7 最终结论（Codex 两轮评审后）

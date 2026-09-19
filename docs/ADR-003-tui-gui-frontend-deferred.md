@@ -1,8 +1,10 @@
 # ADR-003 — 交互模型可移植性确认；TUI / GUI 前端选择推迟
 
 日期：2026-08-30
-状态：**已定向**（项目所有者确认）
-关联：ADR-002（Human Console 交互模型）、ADR-012（Neovim/TUI 首期人机控制台）
+状态：**部分被取代**——§决定 1/2（模型前端无关、推迟到 UI 阶段）仍有效；§决定 3 与 ADR-012（首期 TUI）
+被 **[ADR-004-vscode-fork-ui-carrier.md](./ADR-004-vscode-fork-ui-carrier.md)**（2026-09-04，项目所有者定向
+**VSCode 官方主仓库二次开发**为 UI 载体）取代，因为本 ADR 的"触发重新评估信号"第 2、3 条已成立。
+所属：ADR-002（Human Console 交互模型）、ADR-012（Neovim/TUI 首期，已取代）
 原型：
 - Neovim / TUI 形态：`https://claude.ai/code/artifact/1952acf6-ecfa-4fba-80c0-fba8db69c996`
 - Tauri / GUI 形态：`https://claude.ai/code/artifact/7a1fb2e4-1dac-4652-b2d8-3a08be01da72`
