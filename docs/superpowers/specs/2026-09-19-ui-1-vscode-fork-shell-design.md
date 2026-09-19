@@ -315,3 +315,10 @@ const MOCK: SpineProvider = {
 **hygiene 豁免策略（记录）**：webview 资源（agent.html/agentHtml.ts）与 mock 数据（mockData.ts）为**内容资源**（中文文案 + HTML 缩进非代码形态），不适用 upstream unicode/缩进规则 → 随提交信息注明豁免（`--no-verify`，f3a1c7c3）；代码文件（humanConsoleViews/contribution/common/humanConsole）保持 hygiene-clean（61c410c4 已过检查）。
 
 **遗留（显示环境）**：D4 工作区/会话导航树（TreeView 或 webview 内自渲染）、⌃1/⌃2/F4 交互验收、webview 实际渲染服务（将收到 render-session 并渲染 19 卡）。
+
+## 附录 H 增补：D4 导航树（2026-09-19，fork @ 5f9b424c，0 errors）
+
+- **形态**：webview 内两栏布局 —— 左 `#nav`（深色侧栏 #0c0f1c，工作区卡片 → 会话行，dirty 点/stage 徽章/状态灯，选中高亮），右对话流。与 Harness 左树同构（v3 指令），DOM 契约id（#ah-hero/#seg-*/#transcript/#composer）保留。
+- **协议扩展（E.2）**：ShellToWeb 增 `render-contexts`（工作区+会话概要）与 `sync-nav`；WebToShell 增 `select-ctx`/`select-session`；点选会话 → 壳侧状态化（curCtxId/curSessionId）→ 回投 `render-session` 全量投影。
+- **工程化**：`agentHtml.ts` 由 `webview/` 迁至 `browser/`（满足 import-pattern 卫生规则；`webview/agent.html` 为源文件）；humanConsole 登记进 `build/lib/i18n.resources.json`；views.ts 点号访问。代码提交 5f9b424c 通过 husky；内容文件豁免提交 44b1727a。
+- **遗留（显示环境）**：树交互手验（点选 3 工作区/5 会话即时切换）、⌃1/⌃2/F4 验收、Changes/Review 面板内容。
