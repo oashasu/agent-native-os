@@ -288,3 +288,16 @@ const MOCK: SpineProvider = {
 ### F.3 编译顺序
 
 1. 基线 watch 绿（out/ 齐）→ 2. 复制补丁 + 加 import → 3. watch 增量编译，逐条解决 [实测点] → 4. D2 验收：⌃1/⌃2/F4 互斥切换、编辑器组原位。
+
+## 附录 G：S0/S1 完成验收证据（2026-09-19，本机无显示环境）
+
+| # | 判据 | 证据 |
+|---|---|---|
+| G1 | npm install 全绿（原生模块编译过） | `native-keymap`→`keymapping.node`、`node-pty`→`pty.node` 产物在 `node_modules/*/build/Release/`；编译用 **Homebrew clang 22.1.0**（PATH 包装 cc/c++，见附录 D 更新） |
+| G2 | watch/out/ 产物齐、0 错误 | `out/vs/workbench/workbench.desktop.main.js`、`out/vs/base/...` 等 242M；watch 日志 tsgo/transpile 全 0 errors |
+| G3 | 运行时 Electron 43.6.0 | `.build/electron/Human Console.app`，`--version` → 43.6.0（与上游 `.npmrc` target 一致） |
+| G4 | 品牌替换生效 | `product.json` → Human Console / `.human-console` / telemetry off；**electron app 包名即 `Human Console.app`** |
+| G5 | 两镜头命令骨架编译进产物 | `out/vs/workbench/contrib/humanConsole/{common,browser}/*.js` 存在；`human.enterIdeLens/human.enterAgentLens/human.toggleLens/human.switchContext` + ⌃1/⌃2/F4/⌃K/[ ]/a/r 键位注册；`workbench.common.main.ts` 已 import 登记 |
+| G6 | fork 改动已提交且过 upstream 检查 | fork 分支 `feature/ui1-shell` @ `61c410c4`（husky hygiene 0 错误）；仓库 `feature/ui1-vscode-shell` @ `420956d` |
+
+**遗留（需有显示环境验收）**：S1 D2 交互（⌃1/⌃2/F4 互斥切换、编辑器组原位）、D3 webview 面板骨架、S2 mock 数据灌入——依 spec C.7/D0–D5 顺序，用户侧在有显示机器上跑 `scripts/s1-vscode-shell-bootstrap.sh` 后继续。
