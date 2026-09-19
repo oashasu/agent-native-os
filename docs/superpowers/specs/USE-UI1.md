@@ -28,6 +28,19 @@
 - 构建在自己机器从头来约需一次性的 10–30 分钟（首次 npm install + 编译），之后增量很快
 - 换机器/重来：删掉 `/tmp/vscode-ui1` 再跑即可
 
+## 1.5 要安装包（不用 dev 窗口，双击即用）
+
+```bash
+./scripts/s1-package-ui1-app.sh
+```
+
+产物：
+- `/tmp/VSCode-darwin-arm64/Human Console.app` —— 双击即用，可拖进 /Applications
+- `/tmp/human-console-<日期>.zip` —— 分发/拷到别的 mac 用
+
+安装提示：产物未签名，首次打开 macOS 会拦——右键 → 打开 → 再点「打开」，或 `xattr -dr com.apple.quarantine /Applications/Human\ Console.app`。
+（要正式签名/公证 / dmg 安装界面：需 Apple Developer 证书，属发布流程，不在本仓库范围。）
+
 ## 2. 打开之后怎么操作
 
 | 按键 | 作用 |
