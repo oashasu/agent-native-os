@@ -351,3 +351,9 @@ const MOCK: SpineProvider = {
 - **产物**：`gulp vscode-darwin-arm64` 生产打包 → `/tmp/VSCode-darwin-arm64/Human Console.app`（1.3G，Contents 完整，CFBundleName=Human Console）；分发 zip `/tmp/human-console-<日期>.zip`。脚本 `scripts/s1-package-ui1-app.sh`（复用 bootstrap 环境；`--zip-only` 只打 zip）。
 - **fork patch**：`build/lib/copilot.ts` —— 上游 main 的 ripgrep shim 期待 `@github/copilot/sdk`，锁文件版本实为 `copilot-sdk`，缺失时 shim throw → 改为 warn+skip（仅影响 Copilot tgrep/ripgrep 集成，产品本体可用）。批注已写进代码；非发布环境（无 copilot SDK 需求）打包畅通。
 - **边界**：.app 未签名/公证 —— 首次打开右键→打开或 `xattr -dr com.apple.quarantine`；正式发布需 Apple Developer 证书 + dmg 工具（不在仓库范围）。
+
+## 附录 H 增补：首启 Agent 镜头 + 打包复盘（2026-09-19，fork @ 759e6bdb）
+
+- **为什么老包"像普通 VSCode"**：默认打开停在 IDE 镜头（=原生 VSCode 外观），Agent 镜头藏 ⌃2 后且无引导；bundle 校验证明二开代码其实在老包内（human.* 命令/视图/协议串全在 workbench.desktop.main.js）。
+- **修复**：`HumanConsoleStartup`（AfterRestored）启动即执行 `CMD_ENTER_AGENT` —— 打开 App 第一眼就是 Agent 镜头（树+对话流），⌃1 回 IDE。bundle 校验：HumanConsoleStartup 串存在（5 处）。
+- **打包链复盘**：`gulp vscode-darwin-arm64` 全流程 ~4-6min（extensions 编译 + esbuild bundle + packager）；copilot ripgrep shim 版本错位 patch（959097d2）。产物 `.app`（1.3G）→ zip 366M。

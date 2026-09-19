@@ -24,6 +24,8 @@
 
 脚本会依次：检查环境 → （必要时用 Homebrew LLVM 绕过 C++20 编译死锁）→ 准备源码 → `npm install` → `npm run watch`（编译并起 Human Console dev 窗口，会一直挂着，别关）。
 
+> **安装包打开后看到普通 VSCode？** 那是旧的 dev 版/旧包。**新包（2026-09-19 21:22 后产出的 zip）首启直接进 Agent 镜头**（左树+对话流+Changes/Review），按 `⌃1` 才是 IDE 镜头。若仍看到纯 VSCode 外观，确认装的是 `/tmp/human-console-20260919.zip` 的新包。
+
 - 只想检查环境不构建：`./scripts/s1-vscode-shell-bootstrap.sh --check`
 - 构建在自己机器从头来约需一次性的 10–30 分钟（首次 npm install + 编译），之后增量很快
 - 换机器/重来：删掉 `/tmp/vscode-ui1` 再跑即可
