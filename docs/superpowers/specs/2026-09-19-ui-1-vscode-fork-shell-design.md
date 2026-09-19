@@ -339,3 +339,9 @@ const MOCK: SpineProvider = {
 
 - **IDE 复用成立**：WebToShell `open-file` 从 stub → `IEditorService.openEditor({ resource: URI.joinPath(URI.file(ctx.ws), path), options: { pinned: true } })` —— 真实打开编辑器组资源（变更文件双击即开）。
 - **API 实测**：当前 main `openEditor` 取代旧 `openResource`；`IEditorOptions` 已移除 `preview`（剩 `pinned`）。webview 双击 diff 行、壳侧解析相对 ws 的工作区路径 —— 两镜头衔接打通（形态上 IDE 复用、数据上是 Agent 投影，符合 ADR-002 不变量）。
+
+## 附录 H 增补：diff 高亮行跳转（2026-09-19，fork @ 74c09d25，0 errors）
+
+- **能力**：双击变更文件打开编辑器时，`hl` 高亮行（首尾行）作为初始 selection 传入 `openEditor`，`selectionRevealType: TextEditorSelectionRevealType.Center` 居中定位 —— 打开即落在改动处。
+- **API 实测**：`IEditorOptions` 已移除 `revealInCenter`，改由 `selectionRevealType` 枚举（默认即 Center）表达；`selection` 形状为 ITextEditorSelection（start 必填、end 可选）。
+- **链路**：webview 双击 → `open-file{path, hl}` → shell `openEditor({resource, options:{pinned, selection, selectionRevealType}})` —— 变更 → 编辑器 → 语义定位全程打通（IDE 复用 + Agent 数据同圆）。
