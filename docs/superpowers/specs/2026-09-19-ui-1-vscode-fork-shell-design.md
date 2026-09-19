@@ -322,3 +322,9 @@ const MOCK: SpineProvider = {
 - **协议扩展（E.2）**：ShellToWeb 增 `render-contexts`（工作区+会话概要）与 `sync-nav`；WebToShell 增 `select-ctx`/`select-session`；点选会话 → 壳侧状态化（curCtxId/curSessionId）→ 回投 `render-session` 全量投影。
 - **工程化**：`agentHtml.ts` 由 `webview/` 迁至 `browser/`（满足 import-pattern 卫生规则；`webview/agent.html` 为源文件）；humanConsole 登记进 `build/lib/i18n.resources.json`；views.ts 点号访问。代码提交 5f9b424c 通过 husky；内容文件豁免提交 44b1727a。
 - **遗留（显示环境）**：树交互手验（点选 3 工作区/5 会话即时切换）、⌃1/⌃2/F4 验收、Changes/Review 面板内容。
+
+## 附录 H 增补：S3 ⌃K 换根（2026-09-19，fork @ d2903fee，0 errors，hygiene-clean）
+
+- **共享根状态**：`browser/humanContextStore.ts` 单例（curCtxId/curSessionId + `onRootChanged` + 投影器注入）——webview 投影与命令共用，单一事实来源。
+- **⌃K 换根**：`CMD_SWITCH_CTX` 从 stub → `IQuickInputService.createQuickPick`（当前 main 已无 showQuickPick，实测对象模型）列 3 工作区（title/ws·branch/stage·dirty）→ 选中 `setRoot` → `onRootChanged` 驱动 webview 全量投影（render-contexts/sync-nav/render-session）。
+- **会话走查**：`[`/`]` 接 store（当前根内循环），`a` 批准=当前会话首个待批 tool 卡（mock 语义），`r` 拒绝留 stub（等 S3 spine 通道）。两镜头均可 ⌃K；键位 when 不变。
