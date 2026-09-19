@@ -334,3 +334,8 @@ const MOCK: SpineProvider = {
 - **数据**：`common/mockData.ts` 扩充 —— 每工作区新增 `changeset`（文件 st/add/del/hl/diff 行，5 个文件，diff 含 ctx/add/del 分类，与原型一致）与 `review`（status APPROVED/PENDING/null + reviewer + AC pass 表，t17 PENDING / t23 APPROVED / t31 无）。
 - **投影**：`project()` 全量投影增 `render-changes`（changes 数组）与 `render-review`（review 对象）；WebToShell 增 `open-file`（壳侧 stub 日志，S3 编辑器桥接见 spine 契约 revertFile 同族）。
 - **渲染**：webview Changes=文件行（A/M/D 徽章、+n/-n、点击展开 diff 着色、双击 open-file）；Review=状态徽章 + reviewer/diff + AC 卡（✓ PASS 绿 / ✗ 红）。seg 三 tab 全部有内容。
+
+## 附录 H 增补：open-file 接真实编辑器（2026-09-19，fork @ bcca4605，0 errors，hygiene-clean）
+
+- **IDE 复用成立**：WebToShell `open-file` 从 stub → `IEditorService.openEditor({ resource: URI.joinPath(URI.file(ctx.ws), path), options: { pinned: true } })` —— 真实打开编辑器组资源（变更文件双击即开）。
+- **API 实测**：当前 main `openEditor` 取代旧 `openResource`；`IEditorOptions` 已移除 `preview`（剩 `pinned`）。webview 双击 diff 行、壳侧解析相对 ws 的工作区路径 —— 两镜头衔接打通（形态上 IDE 复用、数据上是 Agent 投影，符合 ADR-002 不变量）。
