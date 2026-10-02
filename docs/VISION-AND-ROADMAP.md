@@ -112,7 +112,8 @@ Contract Skeleton → Work+Session Core（Asset Store/FTS/backup）→ Runtime+H
 - M1 竖切：M1.0–M1.8.5 全部 `— done`（tags 至 `m1.8.5-workspace-by-context-recovery`）；**M1.9（真实 codex + Maven 端到端 + G1–G6）只有计划、尚未开始实现，已暂缓**（ADR-005），`scripts/qualify-m1.sh` 不存在。
 - **近期主线（2026-10-02 起，ADR-005）：轻量图形化 IDE + Agent 会话管理**，直接对应两个真实痛点——IDEA 常驻 10G+ 内存（整机 16G）、claude/codex 会话难管（误关丢失、找回/切换不便、与 IDE 状态切换有摩擦）。验收以**用户可感知**为准（关窗口会话仍在、找回/切换步数、IDE 常驻内存），不再以纯后端的 Gate 为唯一判据。
   - 已交付：`agentdeck/`（会话管理器独立工具：索引 claude/codex 历史会话、tmux 托管防误关、休眠/恢复、状态/标签/置顶筛选、终端接入）。
-  - 进行中/下一步：轻量 IDE 侧（stock VSCode + 扩展：会话树、视图切换、改动文件联动 diff；必要时才 fork）；会话托管契约先行下沉为 Go 插件；量化内存收益。
+  - 已交付（原型）：`vscode-agentdeck/`（stock VSCode 扩展：会话树、tmux 托管终端标签、改动文件联动 diff、Agent/IDE 视图切换；无需 fork）。
+  - 下一步：真实使用并收集反馈；会话托管契约先行下沉为 Go 插件；量化内存收益；必要时才 fork。
   - 暂缓：M1.9 qualification（计划与规格保留，待有真实使用方后恢复）；UI-1 VSCode fork 线暂停。
 
 ---

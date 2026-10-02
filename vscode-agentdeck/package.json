@@ -1,0 +1,233 @@
+{
+  "name": "agentdeck",
+  "displayName": "AgentDeck",
+  "description": "claude / codex 会话管理：会话树、tmux 托管终端、改动文件 diff、Agent/IDE 视图切换",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentdeck",
+          "title": "AgentDeck",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentdeck": [
+        {
+          "id": "agentdeck.sessions",
+          "name": "Agent 会话"
+        },
+        {
+          "id": "agentdeck.changes",
+          "name": "会话改动"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "agentdeck.sessions",
+        "contents": "没有连接到 agentdeck 服务。\n[启动服务](command:agentdeck.startServer)",
+        "when": "agentdeck.offline"
+      }
+    ],
+    "commands": [
+      {
+        "command": "agentdeck.refresh",
+        "title": "AgentDeck: 刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "agentdeck.open",
+        "title": "AgentDeck: 打开会话"
+      },
+      {
+        "command": "agentdeck.resume",
+        "title": "恢复并接入",
+        "icon": "$(play)"
+      },
+      {
+        "command": "agentdeck.sleep",
+        "title": "休眠（释放内存）",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "agentdeck.setStatus",
+        "title": "标记状态…"
+      },
+      {
+        "command": "agentdeck.editTags",
+        "title": "编辑标签…"
+      },
+      {
+        "command": "agentdeck.togglePin",
+        "title": "置顶 / 取消置顶"
+      },
+      {
+        "command": "agentdeck.rename",
+        "title": "改显示名称…"
+      },
+      {
+        "command": "agentdeck.addFolder",
+        "title": "把会话目录加入当前工作区"
+      },
+      {
+        "command": "agentdeck.newClaude",
+        "title": "AgentDeck: 新建 Claude 会话",
+        "icon": "$(add)"
+      },
+      {
+        "command": "agentdeck.newCodex",
+        "title": "AgentDeck: 新建 Codex 会话"
+      },
+      {
+        "command": "agentdeck.quickSwitch",
+        "title": "AgentDeck: 快速切换会话"
+      },
+      {
+        "command": "agentdeck.lensAgent",
+        "title": "AgentDeck: 进入 Agent 视图"
+      },
+      {
+        "command": "agentdeck.lensIde",
+        "title": "AgentDeck: 进入 IDE 视图"
+      },
+      {
+        "command": "agentdeck.startServer",
+        "title": "AgentDeck: 启动服务"
+      },
+      {
+        "command": "agentdeck.openChange",
+        "title": "查看改动"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentdeck.newClaude",
+          "when": "view == agentdeck.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "agentdeck.refresh",
+          "when": "view == agentdeck.sessions || view == agentdeck.changes",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "agentdeck.resume",
+          "when": "view == agentdeck.sessions && viewItem == session.dormant",
+          "group": "inline"
+        },
+        {
+          "command": "agentdeck.sleep",
+          "when": "view == agentdeck.sessions && viewItem == session.live",
+          "group": "inline"
+        },
+        {
+          "command": "agentdeck.setStatus",
+          "when": "view == agentdeck.sessions && viewItem =~ /^session\\./",
+          "group": "1_mark@1"
+        },
+        {
+          "command": "agentdeck.editTags",
+          "when": "view == agentdeck.sessions && viewItem =~ /^session\\./",
+          "group": "1_mark@2"
+        },
+        {
+          "command": "agentdeck.togglePin",
+          "when": "view == agentdeck.sessions && viewItem =~ /^session\\./",
+          "group": "1_mark@3"
+        },
+        {
+          "command": "agentdeck.rename",
+          "when": "view == agentdeck.sessions && viewItem =~ /^session\\./",
+          "group": "1_mark@4"
+        },
+        {
+          "command": "agentdeck.addFolder",
+          "when": "view == agentdeck.sessions && viewItem =~ /^session\\./",
+          "group": "2_ide@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "agentdeck.quickSwitch",
+        "key": "cmd+alt+k",
+        "mac": "cmd+alt+k",
+        "linux": "ctrl+alt+k",
+        "win": "ctrl+alt+k"
+      },
+      {
+        "command": "agentdeck.lensAgent",
+        "key": "cmd+alt+1",
+        "mac": "cmd+alt+1",
+        "linux": "ctrl+alt+1",
+        "win": "ctrl+alt+1"
+      },
+      {
+        "command": "agentdeck.lensIde",
+        "key": "cmd+alt+2",
+        "mac": "cmd+alt+2",
+        "linux": "ctrl+alt+2",
+        "win": "ctrl+alt+2"
+      }
+    ],
+    "configuration": {
+      "title": "AgentDeck",
+      "properties": {
+        "agentdeck.port": {
+          "type": "number",
+          "default": 47017,
+          "description": "agentdeck 服务端口（仅 127.0.0.1）"
+        },
+        "agentdeck.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "agentdeck 可执行文件路径；留空则自动查找（仓库 .bin/、~/agent-native-os/.bin/、PATH）"
+        },
+        "agentdeck.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "服务未运行时自动启动"
+        },
+        "agentdeck.tmuxSocket": {
+          "type": "string",
+          "default": "agentdeck",
+          "description": "tmux 独立 server 的 socket 名（与 agentdeck 服务一致）"
+        },
+        "agentdeck.refreshSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "description": "会话状态刷新间隔（秒）"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test:unit": "node --test test/unit.test.js",
+    "test:integration": "node test/runIntegration.js",
+    "test": "npm run test:unit && npm run test:integration",
+    "vscode": "node test/launch.js"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^2.4.1"
+  }
+}
