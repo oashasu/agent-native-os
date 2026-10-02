@@ -2,7 +2,7 @@
 
 > 本文档是本仓库的**目标基线**：把散落在历史素材（需求基线 docx、总体设计与各详细设计、AEOS Rust 原始仓库、微内核各版本仓库）中的项目远景、中期目标与长期目标收敛为一份可审计、可引用、可执行的文件，避免方向不明。
 >
-> - 状态：**基线入档（2026-09-19）**，源自冻结的需求基线 v0.4 / 总体设计 v0.1 / AEOS Rust M0–M10 实现史。
+> - 状态：**基线入档（2026-09-19）**，源自冻结的需求基线 v0.4 / 总体设计 v0.1 / AEOS Rust M0–M10 实现史。**2026-10-02 近期目标转向**见 §9 与 [ADR-005](./ADR-005-near-term-lightweight-ide-and-session-manager.md)（愿景/目标/原则/里程碑表不变，仅近期主线改变）。
 > - 配套：`docs/M1-DESIGN.md` 是当前 Go 工程的**实现基线**；本文件回答"为什么做、终点在哪"，M1-DESIGN 回答"眼前这一段怎么做"。
 > - 维护约定：本文档只随时间轴**增补**（新里程碑结论、新 ADR）；冻结的蓝图内容（愿景/目标/原则/里程碑表）不做静默改写，改动须另走 ADR。
 
@@ -79,7 +79,7 @@ IDE-independent（P1）· LLM Reasoning, Tools Truth（P2）· Workflow First（
 |---|---|---|---|
 | **设计层 M0–M7** | 总体设计 v0.1 §18.2（Contract Skeleton → Work+Session Core → Runtime+Harness A → Harness B+Navigator → Workflow+Git → Neovim Client → Spring Evidence Slice → Hardening） | MVP 交付顺序的蓝图 | 已被 AEOS Rust 实现史吸收、扩展 |
 | **AEOS Rust M0–M10** | `agent-native-engineering-os-m10/` 累积实现 + m1–m8 文档 | 原版 Rust 单体的实际实现轨迹 | **已实现**（M0–M10），是本工程的"前身实证" |
-| **当前 Go 工程 M0.5 / M1** | 本仓库 `kernel/`（M0.5 微内核对抗认证）+ `docs/M1-DESIGN.md`（M1.0–M1.9 竖切） | 微内核化重写的近期实现 | M0.5 认证通过；M1.0–M1.8.5 done；**M1.9 在途** |
+| **当前 Go 工程 M0.5 / M1** | 本仓库 `kernel/`（M0.5 微内核对抗认证）+ `docs/M1-DESIGN.md`（M1.0–M1.9 竖切） | 微内核化重写的近期实现 | M0.5 认证通过；M1.0–M1.8.5 done；**M1.9 暂缓（只有计划，见 §3.3 与 ADR-005）** |
 
 > **结论**：当前仓库的 "M1"（工程竖切）**不是** AEOS Rust 的 "M1"；本工程 M1 之上仍在推进的完整领域模型迁移即对应 AEOS 蓝图中的 M2+（见 §5）。引用历史里程碑时必须带前缀（"AEOS M9" 或 "设计层 M3"），避免与当前 M1.x 混淆。
 
@@ -109,8 +109,11 @@ Contract Skeleton → Work+Session Core（Asset Store/FTS/backup）→ Runtime+H
 ### 3.3 当前 Go 工程状态（锚点）
 
 - 微内核链：v0.9.2（client auth）→ v1.0（可执行参考）→ **v0.10.0 M0.5 对抗资格认证 PASSED**（`kernel/docs/13-…`；非生产安全认证）。
-- M1 竖切：M1.0–M1.8.5 全部 `— done`（tags 至 `m1.8.5-workspace-by-context-recovery`）；**M1.9（真实 codex + Maven 端到端 + G1–G6）在途**，`scripts/qualify-m1.sh` 尚未实现。
-- 近期成败只有一件事：**M1.9 qualification 通过，输出 `M1 ENGINEERING VERTICAL SLICE: PASSED`**（判据见 `docs/M1-DESIGN.md` §2/§10/§13）。
+- M1 竖切：M1.0–M1.8.5 全部 `— done`（tags 至 `m1.8.5-workspace-by-context-recovery`）；**M1.9（真实 codex + Maven 端到端 + G1–G6）只有计划、尚未开始实现，已暂缓**（ADR-005），`scripts/qualify-m1.sh` 不存在。
+- **近期主线（2026-10-02 起，ADR-005）：轻量图形化 IDE + Agent 会话管理**，直接对应两个真实痛点——IDEA 常驻 10G+ 内存（整机 16G）、claude/codex 会话难管（误关丢失、找回/切换不便、与 IDE 状态切换有摩擦）。验收以**用户可感知**为准（关窗口会话仍在、找回/切换步数、IDE 常驻内存），不再以纯后端的 Gate 为唯一判据。
+  - 已交付：`agentdeck/`（会话管理器独立工具：索引 claude/codex 历史会话、tmux 托管防误关、休眠/恢复、状态/标签/置顶筛选、终端接入）。
+  - 进行中/下一步：轻量 IDE 侧（stock VSCode + 扩展：会话树、视图切换、改动文件联动 diff；必要时才 fork）；会话托管契约先行下沉为 Go 插件；量化内存收益。
+  - 暂缓：M1.9 qualification（计划与规格保留，待有真实使用方后恢复）；UI-1 VSCode fork 线暂停。
 
 ---
 
@@ -175,7 +178,22 @@ Contract Skeleton → Work+Session Core（Asset Store/FTS/backup）→ Runtime+H
    ├─ 中长期：统一 Semantic Graph + Engineering Memory/Knowledge + Continual Learning
    │          └─ Phase 2–5（语义工具 → 语义重构/JPA → 图谱 → Memory & Knowledge）
    ├─ 中期：Engineering Core Domain 做深（G4/G5/G9/G10/G11/G12）+ 多 Harness/Agent Team（G2/G3）
-   ├─ 近期：M1 竖切（G8/G6/G5 骨架）—— 当前 Go 工程（M1.0–M1.8.5 done，M1.9 在途）
+   ├─ 近期（ADR-005）：轻量图形化 IDE + Agent 会话管理（G1/G3/G8/G9 的用户可感知切片）
+   │          ├─ 已交付：agentdeck（会话管理器）
+   │          └─ 下一步：VSCode 扩展 + 会话托管插件化；M1.9 暂缓
+   ├─ 已完成：M1 竖切骨架（G8/G6/G5）—— Go 工程 M1.0–M1.8.5 done
    └─ 地基：微内核 M0.5 PASSED（领域无关 Kernel，词汇护栏机器强制）
            └─ 参考实证：AEOS Rust M0–M10（同一蓝图的原版实现史）
 ```
+
+---
+
+## 9. 时间轴增补
+
+### 2026-10-02 — 近期目标转向（[ADR-005](./ADR-005-near-term-lightweight-ide-and-session-manager.md)）
+
+- **变更**：近期主线由"M1.9 qualification 通过"改为"轻量图形化 IDE + Agent 会话管理"。M1.9 暂缓；ADR-004 的落地顺序改为"stock VSCode + 扩展先行，必要时再 fork"。
+- **不变**：§2 愿景、§2.5 目标 G1–G13、P1–P15 原则、§3 里程碑编号对齐、§4–§6 的 Phase 与中长期目标；Go 内核 + 插件架构保留，会话托管待原型稳定后契约先行下沉为插件。
+- **原因**：M1.0–M1.8.5 均为无界面验收，未触及用户的两个真实痛点；M1.9 同样不缓解它们（复盘见 ADR-005）。
+- **实现锚点**：`agentdeck/`（分支 `feature/agentdeck`，提交 `5c8f0f3`）。
+
