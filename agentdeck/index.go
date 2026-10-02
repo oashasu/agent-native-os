@@ -16,16 +16,17 @@ import (
 // Session is one resumable agent conversation found on disk. The conversation
 // itself lives in the provider's own jsonl; agentdeck only indexes it.
 type Session struct {
-	Provider string    `json:"provider"` // claude | codex
-	ID       string    `json:"id"`
-	Title    string    `json:"title"`
-	Cwd      string    `json:"cwd"`
-	Updated  time.Time `json:"updated"`
-	Path     string    `json:"path"`
-	Live     bool      `json:"live"`
-	Tmux     string    `json:"tmux,omitempty"`
-	RSSMB    int       `json:"rss_mb,omitempty"`
-	Active   int64     `json:"active,omitempty"` // unix seconds of last tmux activity
+	Provider  string    `json:"provider"` // claude | codex
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Cwd       string    `json:"cwd"`
+	Updated   time.Time `json:"updated"`
+	Path      string    `json:"path"`
+	Live      bool      `json:"live"`
+	Tmux      string    `json:"tmux,omitempty"`
+	RSSMB     int       `json:"rss_mb,omitempty"`
+	Active    int64     `json:"active,omitempty"`    // unix seconds of last tmux activity
+	Elsewhere []int     `json:"elsewhere,omitempty"` // live processes outside agentdeck that hold this session
 	Meta
 }
 

@@ -70,8 +70,25 @@ type Live struct {
 	Dead     bool
 }
 
+func (t *Tmux) PanePIDs() []int {
+	out, err := t.run("list-panes", "-a", "-F", "#{session_name} #{pane_pid}")
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(ln)
+		if len(f) == 2 && strings.HasPrefix(f[0], "ad-") {
+			if p, err := strconv.Atoi(f[1]); err == nil {
+				pids = append(pids, p)
+			}
+		}
+	}
+	return pids
+}
+
 func (t *Tmux) ListLive() map[string]Live {
-	out, err := t.run("list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{session_activity}\t#{pane_dead}")
+	out, err := t.run("list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{window_activity}\t#{pane_dead}")
 	live := map[string]Live{}
 	if err != nil {
 		return live // no server running == nothing live

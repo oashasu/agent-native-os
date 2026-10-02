@@ -69,6 +69,21 @@ button.danger:hover{border-color:#e5534b;color:#e5534b}
 #preview .msg b{display:block;font-size:11px;color:var(--dim);margin-bottom:3px;font-weight:500}
 #preview .go{padding:9px 20px;font-size:14px;background:#1d2a44;border-color:var(--acc);margin:6px 0 14px}
 kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:11px}
+#banner{position:fixed;top:0;left:0;right:0;z-index:100;background:#5a2a12;color:#ffd9b5;text-align:center;padding:6px;display:none;font-size:12px}
+.tab{display:flex;align-items:center;gap:6px}
+.tab .x{padding:0 4px;border-radius:4px;color:var(--dim);line-height:16px}
+.tab .x:hover{background:#2a3144;color:var(--fg)}
+.tab.work::before,.tab.unread::before{content:"";width:7px;height:7px;border-radius:50%;flex:none}
+.tab.work::before{background:var(--doing);animation:pulse 1s infinite}
+.tab.unread::before{background:var(--warn)}
+.live.work .dot{background:var(--doing);box-shadow:0 0 6px var(--doing);animation:pulse 1s infinite}
+.live.unread .dot{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+@keyframes pulse{50%{opacity:.35}}
+.ut.warnx{background:#4a2020;color:#ffb4ae}
+.warnbox{background:#3a2216;border:1px solid #8a4a1e;color:#ffd0a8;padding:8px 12px;border-radius:8px;margin:8px 0 12px;max-width:900px;line-height:1.6}
+.keys{color:var(--dim);font-size:11px;padding:6px 12px;border-top:1px solid var(--line);line-height:1.7}
+#pop .quick{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+#pop .quick button{font-size:11px;padding:1px 7px}
 #toast{position:fixed;bottom:18px;right:18px;background:#3a1d1d;border:1px solid #e5534b;color:#ffb4ae;padding:10px 14px;border-radius:8px;display:none;max-width:420px;z-index:99}
 #pop{position:fixed;z-index:50;background:#1a1f2b;border:1px solid #33405c;border-radius:10px;padding:12px;width:290px;display:none;box-shadow:0 8px 30px #000a}
 #pop label{display:block;color:var(--dim);font-size:11px;margin:8px 0 4px}
@@ -95,6 +110,7 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
       <div class="row" id="tagchips"></div>
     </div>
     <div id="list"></div>
+    <div class="keys">⌃⇧W 关闭标签 · ⌃⇧S 休眠 · ⌃1-9 跳到第 N 个标签<br>⌘[ ⌘] 切标签 · ⌘↑ ⌘↓ 切会话 · ⌘K 搜索 · 右键/⋯ 标记</div>
     <div id="status"><span id="stLive"></span><span id="stMem"></span></div>
   </div>
   <div id="main">
@@ -108,6 +124,7 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
     <div id="terms"><div id="preview"></div><div id="empty"><div>从左侧选择一个会话<br>双击/回车 = 恢复并接入 &nbsp;·&nbsp; 关闭本窗口不会中断运行中的会话<br><kbd>⌘K</kbd> 搜索 &nbsp; <kbd>⌘[</kbd><kbd>⌘]</kbd> 切换标签 &nbsp; <kbd>⌘+</kbd><kbd>⌘-</kbd> 终端字体 &nbsp; <kbd>⌘J</kbd> 回到列表</div></div></div>
   </div>
 </div>
+<div id="banner"></div>
 <div id="toast"></div>
 <div id="pop"></div>
 <script src="xterm.js"></script>
@@ -118,14 +135,14 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
 const $=s=>document.querySelector(s);
 const LS={get(k,d){try{const v=localStorage.getItem('ad.'+k);return v==null?d:JSON.parse(v)}catch(_){return d}},set(k,v){try{localStorage.setItem('ad.'+k,JSON.stringify(v))}catch(_){}}};
 const st={sessions:[],byKey:{},q:'',filter:LS.get('filter','all'),tagSel:LS.get('tagSel',[]),view:LS.get('view','flat'),showTmp:LS.get('showTmp',false),
-  collapsed:LS.get('collapsed',{}),font:LS.get('font',15),allCollapsed:false,sel:null,open:[],cur:null,terms:{},preview:null,showOld:{},flatLimit:150,raw:''};
+  collapsed:LS.get('collapsed',{}),seen:{},ver:'',restored:false,font:LS.get('font',15),allCollapsed:false,sel:null,open:[],cur:null,terms:{},preview:null,showOld:{},flatLimit:150,raw:''};
 const key=s=>s.provider+':'+s.id;
 const STATUS={doing:'进行中',wait:'等我',block:'阻塞',done:'完成'};
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',5000)}
 async function api(path,body){
   const r=await fetch(path,body?{method:'POST',headers:{'X-AD':'1','Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);
   const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(j.error||r.statusText);
+  if(!r.ok){const e=new Error(j.error||r.statusText);e.code=j.code;throw e}
   return j;
 }
 function ago(t){const s=(Date.now()-new Date(t))/1000;if(s<60)return'刚刚';if(s<3600)return Math.floor(s/60)+' 分钟前';if(s<86400)return Math.floor(s/3600)+' 小时前';if(s<86400*30)return Math.floor(s/86400)+' 天前';return new Date(t).toLocaleDateString()}
@@ -134,18 +151,40 @@ const title=s=>s.alias||s.title;
 const baseName=c=>c.split('/').filter(Boolean).pop()||c;
 const shortPath=c=>c.replace(/^\/Users\/[^/]+/,'~');
 
+function banner(on,msg){const b=$('#banner');b.style.display=on?'block':'none';if(on)b.textContent='与 agentdeck 服务的连接中断，正在重连…（会话仍在后台运行）'+(msg?' ['+msg+']':'')}
+const nowS=()=>Math.floor(Date.now()/1000);
+// working: output within the last few seconds. unread: it has produced output since you last looked at it.
+const isWork=s=>s.live&&s.active&&nowS()-s.active<=5;
+const isUnread=s=>s.live&&s.active&&!isWork(s)&&st.cur!==key(s)&&s.active>(st.seen[key(s)]||0)+2;
 async function refresh(force){
   let raw;
-  try{raw=JSON.stringify(await api('/api/sessions'))}catch(e){return toast('刷新失败: '+e.message)}
+  try{
+    const r=await fetch('/api/sessions');
+    if(!r.ok)throw new Error(r.status===401?'未授权：请用 agentdeck 命令重新打开窗口':r.statusText);
+    const v=r.headers.get('X-AD-Ver');
+    if(v){if(st.ver&&st.ver!==v){location.reload();return}st.ver=v}   // UI was upgraded: reload, tabs are restored
+    raw=JSON.stringify(await r.json());banner(false);
+  }catch(e){banner(true,e.message);return}
+  if(st.cur)st.seen[st.cur]=nowS();
   if(!force&&raw===st.raw)return;           // nothing changed: leave the DOM alone
   st.raw=raw;st.sessions=JSON.parse(raw);st.byKey={};for(const s of st.sessions)st.byKey[key(s)]=s;
   for(const k of st.open){const s=st.byKey[k],t=st.terms[k];if(t&&s&&!s.live&&!t.off)t.off=true}
+  if(!st.restored){st.restored=true;for(const s of st.sessions)if(s.live)st.seen[key(s)]=nowS();restoreTabs()}
+  const un=st.sessions.filter(isUnread).length;document.title=(un?'('+un+') ':'')+'AgentDeck';
   render();
 }
+// reopen the tabs that were open last time (live ones only; nothing is resumed behind your back)
+function restoreTabs(){
+  const keys=LS.get('open',[]),cur=LS.get('cur',null);
+  for(const k of keys){const s=st.byKey[k];if(s&&s.live)attach(s,s.tmux,false,true)}
+  if(cur&&st.terms[cur])show(cur);
+}
+function saveTabs(){LS.set('open',st.open);LS.set('cur',st.cur)}
 function matchFilter(s){
   const f=st.filter;
   if(f==='pin'&&!s.pinned)return false;
   if(f==='live'&&!s.live)return false;
+  if(f==='unread'&&!isUnread(s))return false;
   if(STATUS[f]&&s.status!==f)return false;
   if(st.tagSel.length&&!st.tagSel.every(t=>(s.tags||[]).includes(t)))return false;
   if(!st.showTmp&&isTmp(s.cwd)&&!s.live)return false;
@@ -154,17 +193,17 @@ function matchFilter(s){
   return true;
 }
 function counts(){
-  const c={all:0,pin:0,live:0,doing:0,wait:0,block:0,done:0},tags={};
+  const c={all:0,pin:0,live:0,unread:0,doing:0,wait:0,block:0,done:0},tags={};
   for(const s of st.sessions){
     if(!st.showTmp&&isTmp(s.cwd)&&!s.live)continue;
-    c.all++;if(s.pinned)c.pin++;if(s.live)c.live++;if(s.status)c[s.status]++;
+    c.all++;if(s.pinned)c.pin++;if(s.live)c.live++;if(isUnread(s))c.unread++;if(s.status)c[s.status]++;
     for(const t of s.tags||[])tags[t]=(tags[t]||0)+1;
   }
   return {c,tags};
 }
 function renderChips(){
   const {c,tags}=counts();
-  const defs=[['all','全部'],['pin','★ 置顶'],['live','● 运行中'],['doing','进行中'],['wait','等我'],['block','阻塞'],['done','完成']];
+  const defs=[['all','全部'],['pin','★ 置顶'],['live','● 运行中'],['unread','◐ 有更新'],['doing','进行中'],['wait','等我'],['block','阻塞'],['done','完成']];
   const el=$('#chips');el.textContent='';
   for(const [k,l] of defs){
     if(k!=='all'&&k!=='live'&&!c[k]&&st.filter!==k)continue;
@@ -229,13 +268,14 @@ function header(name,n,cwd,open){
 }
 function row(s,showDir){
   const k=key(s),d=document.createElement('div');
-  d.className='it'+(s.live?' live':'')+(s.status?' st-'+s.status:'')+(st.sel&&st.sel===k?' sel':'')+(st.cur===k?' cur':'');
+  d.className='it'+(s.live?' live':'')+(isWork(s)?' work':'')+(isUnread(s)?' unread':'')+(s.status?' st-'+s.status:'')+(st.sel&&st.sel===k?' sel':'')+(st.cur===k?' cur':'');
   d.dataset.k=k;
   d.innerHTML='<span class="dot"></span><div><div class="t"></div><div class="m"></div></div><span class="mem"></span><button class="more" title="标记 / 标签 / 置顶 / 改名">⋯</button>';
   d.querySelector('.t').textContent=(s.pinned?'★ ':'')+title(s);
   const m=d.querySelector('.m');
   const add=(cls,txt)=>{const e=document.createElement('span');e.className=cls;e.textContent=txt;m.appendChild(e)};
   add('tag '+s.provider,s.provider);
+  if(s.elsewhere&&s.elsewhere.length)add('ut warnx','⚠ 别处也在运行');
   if(s.status)add('ut',STATUS[s.status]);
   for(const t of s.tags||[])add('ut','#'+t);
   add('',ago(s.updated));
@@ -271,8 +311,9 @@ async function showPreview(s){
   const p=$('#preview');p.textContent='';
   const h=document.createElement('h2');h.textContent=title(s);p.appendChild(h);
   const sub=document.createElement('div');sub.className='sub';sub.textContent=s.provider+' · '+shortPath(s.cwd)+' · '+ago(s.updated)+' · 已休眠（未占用内存）';p.appendChild(sub);
-  const go=document.createElement('button');go.className='go';go.textContent='▶ 恢复会话并接入 (Enter)';go.onclick=()=>openSession(s);p.appendChild(go);
+  const go=document.createElement('button');go.className='go';go.textContent=(s.elsewhere&&s.elsewhere.length)?'▶ 仍然在这里恢复（会分叉）':'▶ 恢复会话并接入 (Enter)';go.onclick=()=>openSession(s);p.appendChild(go);
   const ide=document.createElement('button');ide.style.marginLeft='8px';ide.textContent='在 IDE 打开目录';ide.onclick=()=>api('/api/ide',{cwd:s.cwd}).catch(e=>toast(e.message));p.appendChild(ide);
+  if(s.elsewhere&&s.elsewhere.length){const w=document.createElement('div');w.className='warnbox';w.textContent='⚠ 此会话正在别处运行（进程 '+s.elsewhere.join(', ')+'）。请回到那个窗口继续；在这里恢复会让对话分叉——两边各自写入同一份记录，互相看不到对方说的话。';p.insertBefore(w,go)}
   const box=document.createElement('div');box.className='sub';box.textContent='加载最近对话…';p.appendChild(box);
   try{
     const msgs=await api('/api/preview?provider='+s.provider+'&id='+encodeURIComponent(s.id));
@@ -289,21 +330,29 @@ function renderTabs(){
   const el=$('#tabs');el.textContent='';
   for(const k of st.open){
     const s=st.byKey[k];if(!s)continue;
-    const t=document.createElement('div');t.className='tab'+(st.cur===k?' on':'')+(st.terms[k]&&st.terms[k].off?' off':'');
-    t.textContent=title(s);t.title=s.cwd+'  (中键关闭标签)';t.onclick=()=>show(k);
+    const t=document.createElement('div');t.className='tab'+(st.cur===k?' on':'')+(st.terms[k]&&st.terms[k].off?' off':'')+(isWork(s)?' work':'')+(isUnread(s)?' unread':'');
+    const lb=document.createElement('span');lb.textContent=title(s);t.appendChild(lb);
+    const x=document.createElement('span');x.className='x';x.textContent='×';x.title='关闭标签（会话继续在后台运行）  ⌃⇧W';
+    x.onclick=ev=>{ev.stopPropagation();closeTab(k)};t.appendChild(x);
+    t.title=s.cwd;t.onclick=()=>show(k);
     t.onauxclick=ev=>{ev.preventDefault();closeTab(k)};
     el.appendChild(t);
   }
   const s=st.byKey[st.cur]||(st.preview&&st.byKey[st.preview]);
   $('#bar').style.display=s?'flex':'none';
-  if(s){$('#bTitle').textContent=title(s);$('#bCwd').textContent=shortPath(s.cwd)+(s.live?'  ·  '+(s.rss_mb||0)+' MB':'  ·  已休眠');$('#bSleep').disabled=!s.live}
+  if(s){$('#bTitle').textContent=title(s);$('#bCwd').textContent=shortPath(s.cwd)+(s.live?'  ·  '+(s.rss_mb||0)+' MB':'  ·  已休眠')+(s.elsewhere&&s.elsewhere.length?'  ·  ⚠ 别处也在运行（分叉风险，进程 '+s.elsewhere.join(', ')+'）':'');$('#bSleep').disabled=!s.live}
 }
-async function openSession(s){
+async function openSession(s,retried,force){
+  s=st.byKey[key(s)]||s;                       // never trust a stale copy: it may have been put to sleep meanwhile
   try{
-    const r=s.live?{tmux:s.tmux}:await api('/api/resume',{provider:s.provider,id:s.id});
-    attach(s,r.tmux);
+    const r=s.live?{tmux:s.tmux}:await api('/api/resume',{provider:s.provider,id:s.id,force:!!force});
+    attach(s,r.tmux,!!retried);
     refresh();
-  }catch(e){toast(e.message)}
+  }catch(e){
+    // already running somewhere else: resuming here would fork the conversation. Ask, never do it silently.
+    if(e.code==='running_elsewhere'&&confirm(e.message+'\n\n仍要在这里恢复吗？（建议取消，回到正在运行它的那个窗口继续）'))return openSession(s,retried,true);
+    if(e.code!=='running_elsewhere')toast(e.message)
+  }
 }
 async function newSession(provider,cwd){
   if(!cwd){const c=st.sel&&st.byKey[st.sel];cwd=c&&c.cwd}
@@ -315,7 +364,7 @@ async function newSession(provider,cwd){
     attach(s,r.tmux);
   }catch(e){toast(e.message)}
 }
-function attach(s,tmux){
+function attach(s,tmux,retried,quiet){
   const k=key(s);
   if(!st.open.includes(k))st.open.push(k);
   let t=st.terms[k];
@@ -336,24 +385,34 @@ function attach(s,tmux){
     const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/term?name='+encodeURIComponent(tmux));
     ws.binaryType='arraybuffer';
     const enc=new TextEncoder();
-    ws.onopen=()=>{try{fit.fit()}catch(_){}ws.send(JSON.stringify({cols:term.cols,rows:term.rows}))};
+    let opened=false;
+    ws.onopen=()=>{opened=true;try{fit.fit()}catch(_){}ws.send(JSON.stringify({cols:term.cols,rows:term.rows}))};
     ws.onmessage=e=>term.write(new Uint8Array(e.data));
-    ws.onclose=()=>{const x=st.terms[k];if(x&&x.ws===ws){x.off=true;term.write('\r\n\x1b[33m[已断开：会话仍在后台运行，点击标签重新接入]\x1b[0m\r\n');renderTabs()}};
+    ws.onclose=()=>{
+      const x=st.terms[k];if(!x||x.ws!==ws)return;
+      if(!opened&&!retried){ // could not attach at all (session ended/changed meanwhile): re-read state and resume once
+        destroyTerm(k);refresh(true).then(()=>{const f=st.byKey[k];if(f)openSession(f,true)});return;
+      }
+      x.off=true;term.write('\r\n\x1b[33m[已断开：点击标签或按回车重新接入；会话若仍在运行不会丢失]\x1b[0m\r\n');renderTabs();
+      if(!opened)toast('无法接入该会话，请确认服务正常（可在列表里重新点击）');
+    };
     term.onData(d=>{if(ws.readyState===1)ws.send(enc.encode(d))});
     term.onResize(({cols,rows})=>{if(ws.readyState===1)ws.send(JSON.stringify({cols,rows}))});
-    term.attachCustomKeyEventHandler(e=>!(e.metaKey&&['k','j','[',']','w','ArrowUp','ArrowDown','=','+','-','0'].includes(e.key)));
+    term.attachCustomKeyEventHandler(e=>{const x=st.terms[k];if(e.type==='keydown'&&x&&x.off&&e.key==='Enter'){reconnect(k);return false}return !isAppKey(e)});
     t=st.terms[k]={term,fit,ws,el,s,tmux,off:false};
     new ResizeObserver(()=>{if(el.classList.contains('on'))try{fit.fit()}catch(_){}}).observe(el);
   }
+  if(quiet){const t1=st.terms[k];if(t1)t1.el.classList.remove('on');renderTabs();return}
   show(k);
 }
+function reconnect(k){const s=st.byKey[k]||(st.terms[k]&&st.terms[k].s);destroyTerm(k);if(s)openSession(s)}
 function show(k){
   const t=st.terms[k];
-  if(t&&t.off){const s=t.s;destroyTerm(k);return openSession(s)}
+  if(t&&t.off)return reconnect(k);
   hidePreview();st.cur=k;$('#empty').style.display='none';
   for(const [x,v] of Object.entries(st.terms))v.el.classList.toggle('on',x===k);
   const v=st.terms[k];if(v){requestAnimationFrame(()=>{try{v.fit.fit();v.term.refresh(0,v.term.rows-1)}catch(_){}v.term.focus()})}
-  st.sel=k;renderTabs();
+  st.sel=k;st.seen[k]=nowS();saveTabs();renderTabs();
   for(const n of document.querySelectorAll('.it.cur'))n.classList.remove('cur');
   const n=document.querySelector('.it[data-k="'+CSS.escape(k)+'"]');if(n)n.classList.add('cur');
 }
@@ -361,7 +420,7 @@ function destroyTerm(k){const t=st.terms[k];if(!t)return;try{t.ws.close()}catch(
 function closeTab(k){ // only detaches; the agent keeps running
   destroyTerm(k);st.open=st.open.filter(x=>x!==k);
   if(st.cur===k){st.cur=st.open[st.open.length-1]||null;if(st.cur)show(st.cur);else $('#empty').style.display='flex'}
-  renderTabs();
+  saveTabs();renderTabs();
 }
 // ---- annotate popover ----
 function openPop(s,anchor){
@@ -376,6 +435,8 @@ function openPop(s,anchor){
   lab('标签（逗号分隔，回车保存）');
   const ti=document.createElement('input');ti.type='text';ti.value=cur.tags.join(', ');ti.placeholder='例如：支付, 待发版';p.appendChild(ti);
   ti.onkeydown=e=>{if(e.key==='Enter'){cur.tags=ti.value.split(/[,，]/).map(x=>x.trim()).filter(Boolean);save();closePop()}};
+  const q=document.createElement('div');q.className='quick';p.appendChild(q);
+  for(const r of ['设计','任务','实现','审核']){const b=document.createElement('button');b.textContent='+'+r;b.onclick=()=>{const c0=ti.value.split(/[,，]/).map(x=>x.trim()).filter(Boolean);if(!c0.includes(r))c0.push(r);ti.value=c0.join(', ')};q.appendChild(b)}
   lab('显示名称（留空用原标题）');
   const ai=document.createElement('input');ai.type='text';ai.value=cur.alias;p.appendChild(ai);
   ai.onkeydown=e=>{if(e.key==='Enter'){cur.alias=ai.value;save();closePop()}};
@@ -400,10 +461,7 @@ function setFont(n){
 $('#fMinus').onclick=()=>setFont(st.font-1);
 $('#fPlus').onclick=()=>setFont(st.font+1);
 // ---- toolbar ----
-$('#bSleep').onclick=async()=>{
-  const s=st.byKey[st.cur];if(!s||!s.live)return;
-  try{await api('/api/sleep',{tmux:s.tmux});const t=st.terms[st.cur];if(t)t.off=true;await refresh(true)}catch(e){toast(e.message)}
-};
+$('#bSleep').onclick=sleepCur;
 $('#bIde').onclick=async()=>{const s=st.byKey[st.cur]||st.byKey[st.preview];if(s)try{await api('/api/ide',{cwd:s.cwd})}catch(e){toast(e.message)}};
 $('#vFlat').onclick=()=>{st.view='flat';LS.set('view','flat');render()};
 $('#vGrp').onclick=()=>{st.view='grp';LS.set('view','grp');render()};
@@ -433,7 +491,22 @@ $('#q').onkeydown=e=>{
   else if(e.key==='Enter'){const s=st.byKey[st.sel]||(st.flat||[])[0];if(s)openSession(s)}
   else if(e.key==='Escape'){if(st.q){st.q='';e.target.value='';render()}else{e.target.blur();const t=st.terms[st.cur];if(t)t.term.focus()}}
 };
+// Ctrl+Shift+W close tab, Ctrl+Shift+S sleep, Ctrl+1..9 jump to tab N. Free on a Mac keyboard, unused by claude/codex.
+function isAppKey(e){
+  if(e.metaKey&&['k','j','[',']','w','ArrowUp','ArrowDown','=','+','-','0'].includes(e.key))return true;
+  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&!e.altKey&&['KeyW','KeyS'].includes(e.code))return true;
+  if(e.ctrlKey&&!e.shiftKey&&!e.metaKey&&!e.altKey&&/^Digit[1-9]$/.test(e.code))return true;
+  return false;
+}
+function sleepCur(){
+  const s=st.byKey[st.cur];if(!s||!s.live)return;
+  if(isWork(s)&&!confirm('该会话正在输出（可能在工作中），确定休眠并结束进程吗？'))return;
+  api('/api/sleep',{tmux:s.tmux}).then(()=>{const t=st.terms[st.cur];if(t)t.off=true;return refresh(true)}).catch(e=>toast(e.message));
+}
 addEventListener('keydown',e=>{
+  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&e.code==='KeyW'){e.preventDefault();if(st.cur)closeTab(st.cur);return}
+  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&e.code==='KeyS'){e.preventDefault();sleepCur();return}
+  if(e.ctrlKey&&!e.shiftKey&&!e.metaKey&&!e.altKey&&/^Digit[1-9]$/.test(e.code)){e.preventDefault();const k=st.open[+e.code.slice(5)-1];if(k)show(k);return}
   if(!e.metaKey)return;
   if(e.key==='k'||e.key==='j'){e.preventDefault();$('#q').focus();$('#q').select()}
   else if(e.key==='['||e.key===']'){e.preventDefault();const i=st.open.indexOf(st.cur);if(st.open.length)show(st.open[(i+(e.key===']'?1:-1)+st.open.length)%st.open.length])}
@@ -442,7 +515,7 @@ addEventListener('keydown',e=>{
   else if(e.key==='-'){e.preventDefault();setFont(st.font-1)}
   else if(e.key==='0'){e.preventDefault();setFont(15)}
 });
-refresh(true);setInterval(()=>refresh(false),4000);$('#q').focus();
+refresh(true);setInterval(()=>refresh(false),3000);$('#q').focus();
 
 </script>
 </body>

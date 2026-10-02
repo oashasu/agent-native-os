@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
@@ -30,6 +31,9 @@ type Server struct {
 	cfg   Config
 	token string
 	port  int
+	run   runCache
+	home  string
+	ver   string // changes when the embedded UI changes: lets an open window reload itself
 }
 
 func loadOrCreateToken(dir string) (string, error) {
@@ -86,6 +90,10 @@ func (s *Server) guard(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) Handler() http.Handler {
+	if s.ver == "" {
+		b, _ := webFS.ReadFile("web/index.html")
+		s.ver = fmt.Sprintf("%x", sha256.Sum256(b))[:12]
+	}
 	mux := http.NewServeMux()
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("/", s.guardH(http.FileServer(http.FS(sub))))
@@ -141,6 +149,17 @@ func (s *Server) merged() []Session {
 		home, _ := os.UserHomeDir()
 		list = append(list, Session{Provider: p, ID: name, Title: title, Cwd: home, Live: true, Tmux: name, RSSMB: l.RSSMB, Active: l.Activity, Updated: timeFromUnix(l.Activity)})
 	}
+	if s.home != "" {
+		rn := s.run.get(s.home, s.tm.PanePIDs())
+		for i := range list {
+			// codex thread locks are held by a shared background process, not by each CLI, so a thread
+			// we host ourselves always looks "held by someone else": don't flag those.
+			if _, ours := live[TmuxName(list[i].Provider, list[i].ID)]; ours && list[i].Provider == "codex" {
+				continue
+			}
+			list[i].Elsewhere = rn.Elsewhere(list[i].Provider, list[i].ID)
+		}
+	}
 	if s.meta != nil {
 		for i := range list {
 			list[i].Meta = s.meta.Get(list[i].Provider + ":" + list[i].ID)
@@ -149,7 +168,15 @@ func (s *Server) merged() []Session {
 	return list
 }
 
+func (s *Server) elsewhere(provider, id string) []int {
+	if s.home == "" || (provider == "codex" && s.tm.has(TmuxName(provider, id))) {
+		return nil // already hosted here: attaching is not a second writer (see merged)
+	}
+	return s.run.get(s.home, s.tm.PanePIDs()).Elsewhere(provider, id)
+}
+
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-AD-Ver", s.ver)
 	writeJSON(w, 200, s.merged())
 }
 
@@ -158,6 +185,7 @@ type req struct {
 	ID       string `json:"id"`
 	Cwd      string `json:"cwd"`
 	Tmux     string `json:"tmux"`
+	Force    bool   `json:"force"`
 	Meta
 }
 
@@ -187,7 +215,15 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, fmt.Errorf("session not found"))
 		return
 	}
-	log.Printf("resume %s %s (from %s)", sess.Provider, sess.ID, r.Referer())
+	sess.Elsewhere = s.elsewhere(sess.Provider, sess.ID) // lookup() only knows the index, not who is running what
+	if len(sess.Elsewhere) > 0 && !q.Force {
+		writeJSON(w, 409, map[string]interface{}{
+			"error": fmt.Sprintf("该会话正在别处运行（进程 %v）。继续恢复会让对话分叉：两边互相看不到对方的内容。", sess.Elsewhere),
+			"code":  "running_elsewhere", "pids": sess.Elsewhere,
+		})
+		return
+	}
+	log.Printf("resume %s %s force=%v elsewhere=%v (from %s)", sess.Provider, sess.ID, q.Force, sess.Elsewhere, r.Referer())
 	name, err := s.tm.Resume(sess.Provider, sess.ID, sess.Cwd)
 	if err != nil {
 		fail(w, 500, err)

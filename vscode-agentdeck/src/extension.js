@@ -214,7 +214,21 @@ function activate(context) {
   }
 
   async function resumeAndAttach(s) {
-    const r = s.live ? { tmux: s.tmux } : await api.resume(s.provider, s.id);
+    let r;
+    if (s.live) {
+      r = { tmux: s.tmux };
+    } else {
+      try {
+        r = await api.resume(s.provider, s.id);
+      } catch (err) {
+        if (err.code !== 'running_elsewhere') throw err;
+        // already running in another window: resuming here forks the conversation. Only on explicit consent.
+        const pick = await vscode.window.showWarningMessage(
+          `${err.message}\n\n建议回到正在运行它的窗口继续。`, { modal: true }, '仍然恢复（会分叉）');
+        if (!pick) return;
+        r = await api.resume(s.provider, s.id, true);
+      }
+    }
     await refresh();
     attach(s, r.tmux);
   }

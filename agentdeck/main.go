@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -87,7 +88,7 @@ func newServer(port int) (*Server, error) {
 		return nil, err
 	}
 	h, _ := os.UserHomeDir()
-	return &Server{ix: NewIndexer(h), meta: NewMetaStore(dir), tm: tm, cfg: cfg, token: tok, port: port}, nil
+	return &Server{home: h, ix: NewIndexer(h), meta: NewMetaStore(dir), tm: tm, cfg: cfg, token: tok, port: port}, nil
 }
 
 func portOpen(port int) bool {
@@ -133,13 +134,21 @@ func main() {
 			if x.Live {
 				mark = "● "
 			}
-			fmt.Printf("%s%-6s %s  %-8dMB %s  %s\n", mark, x.Provider, x.ID[:8], x.RSSMB, x.Cwd, x.Title)
+			warn := ""
+			if len(x.Elsewhere) > 0 {
+				warn = fmt.Sprintf("  ⚠ 别处也在运行 pid=%v", x.Elsewhere)
+			}
+			fmt.Printf("%s%-6s %s  %-8dMB %s  %s%s\n", mark, x.Provider, x.ID[:8], x.RSSMB, x.Cwd, x.Title, warn)
 		}
 	case "open":
 		if !portOpen(*port) {
 			self, _ := os.Executable()
 			c := exec.Command(self, "-port", fmt.Sprint(*port), "serve")
-			c.Stdout, c.Stderr = nil, nil
+			// own session: closing the launching terminal must not kill the server (SIGHUP)
+			c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			if lf, err := os.OpenFile(filepath.Join(configDir(), "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+				c.Stdout, c.Stderr = lf, lf
+			}
 			if err := c.Start(); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)

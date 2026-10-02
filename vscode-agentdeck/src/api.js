@@ -41,6 +41,7 @@ class Api {
           if (res.statusCode >= 200 && res.statusCode < 300) return resolve(json);
           const err = new Error(json.error || text.trim() || `HTTP ${res.statusCode}`);
           err.status = res.statusCode;
+          err.code = json.code;
           reject(err);
         });
       });
@@ -53,7 +54,7 @@ class Api {
 
   sessions() { return this.request('GET', '/api/sessions'); }
   preview(provider, id) { return this.request('GET', `/api/preview?provider=${provider}&id=${encodeURIComponent(id)}`); }
-  resume(provider, id) { return this.request('POST', '/api/resume', { provider, id }); }
+  resume(provider, id, force) { return this.request('POST', '/api/resume', { provider, id, force: !!force }); }
   create(provider, cwd) { return this.request('POST', '/api/new', { provider, cwd }); }
   sleep(tmux) { return this.request('POST', '/api/sleep', { tmux }); }
   meta(provider, id, m) { return this.request('POST', '/api/meta', { provider, id, ...m }); }

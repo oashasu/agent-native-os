@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +67,19 @@ func TestIndexer(t *testing.T) {
 
 func testServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Helper()
+	// never touch the user's real tmux server: every test gets its own socket
+	prev := tmuxSocket
+	tmuxSocket = fmt.Sprintf("adtest-%d-%d", os.Getpid(), time.Now().UnixNano()%1e6)
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", tmuxSocket, "kill-server").Run()
+		// the server exits (and leaves its socket file) when the last session dies, so don't ask tmux for the path
+		dir := os.Getenv("TMUX_TMPDIR")
+		if dir == "" {
+			dir = "/tmp"
+		}
+		_ = os.Remove(filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), tmuxSocket))
+		tmuxSocket = prev
+	})
 	dir := t.TempDir()
 	tm, err := NewTmux(dir, Config{})
 	if err != nil {
@@ -234,5 +249,171 @@ func TestPreviewBothProviders(t *testing.T) {
 	}
 	if len(px) != 2 || px[0].Text != "codex问" || px[1].Text != "codex答" {
 		t.Errorf("codex preview: %+v", px)
+	}
+}
+
+func TestSessionsEndpointCarriesUIVersion(t *testing.T) {
+	s, ts := testServer(t)
+	get := func() string {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/sessions", nil)
+		req.Header.Set("Cookie", "ad_token="+s.token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.Header.Get("X-AD-Ver")
+	}
+	a, b := get(), get()
+	if a == "" || a != b {
+		t.Fatalf("UI version missing or unstable: %q vs %q", a, b)
+	}
+}
+
+// psLstart returns pid's start time the way claude records it: English format, in UTC.
+func psLstart(t *testing.T, pid int) string {
+	t.Helper()
+	ps := psTable()
+	p, ok := ps[pid]
+	if !ok {
+		t.Fatalf("pid %d not in ps table", pid)
+	}
+	return time.Unix(p.start, 0).UTC().Format(lstartLayout)
+}
+
+func TestScanRunningClaudeRegistry(t *testing.T) {
+	home := t.TempDir()
+	me := os.Getpid()
+	reg := func(pid int, sid, start string) {
+		write(t, filepath.Join(home, ".claude/sessions", strconv.Itoa(pid)+".json"),
+			fmt.Sprintf(`{"pid":%d,"sessionId":%q,"procStart":%q}`, pid, sid, start))
+	}
+	reg(me, "alive-session", psLstart(t, me))                  // genuinely running
+	reg(me+1000000, "dead-session", "Mon Jan 1 00:00:00 2001") // no such pid
+	reg(1, "recycled-pid", "Mon Jan  1 00:00:00 2001")         // pid exists but started at another time
+	if _, ok := psTable()[1]; !ok {
+		t.Fatal("ps table does not contain pid 1: the recycled-pid case would prove nothing")
+	}
+	r := scanRunning(home, nil)
+	if got := r.Elsewhere("claude", "alive-session"); len(got) != 1 || got[0] != me {
+		t.Errorf("live session not detected: %v", got)
+	}
+	if got := r.Elsewhere("claude", "dead-session"); len(got) != 0 {
+		t.Errorf("dead pid counted as running: %v", got)
+	}
+	if got := r.Elsewhere("claude", "recycled-pid"); len(got) != 0 {
+		t.Errorf("recycled pid counted as running: %v", got)
+	}
+	// a process hosted by agentdeck's own tmux is not "elsewhere"
+	if got := scanRunning(home, []int{me}).Elsewhere("claude", "alive-session"); len(got) != 0 {
+		t.Errorf("our own process reported as elsewhere: %v", got)
+	}
+}
+
+func TestScanRunningCodexLocks(t *testing.T) {
+	home := t.TempDir()
+	lock := filepath.Join(home, ".codex/thread-writer-locks/held-thread.lock")
+	write(t, lock, "")
+	write(t, filepath.Join(home, ".codex/thread-writer-locks/idle-thread.lock"), "")
+	f, err := os.Open(lock) // a running codex keeps its thread lock open
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := exec.LookPath("lsof"); err != nil {
+		t.Skip("lsof not available")
+	}
+	r := scanRunning(home, nil)
+	if got := r.Elsewhere("codex", "held-thread"); len(got) != 1 || got[0] != os.Getpid() {
+		t.Errorf("held lock not detected: %v", got)
+	}
+	if got := r.Elsewhere("codex", "idle-thread"); len(got) != 0 {
+		t.Errorf("unheld lock reported as running: %v", got)
+	}
+}
+
+func TestResumeRefusedWhenRunningElsewhere(t *testing.T) {
+	s, ts := testServer(t)
+	home := t.TempDir()
+	s.home, s.ix = home, NewIndexer(home)
+	sid := "aaaaaaaa-1111-2222-3333-444444444444"
+	write(t, filepath.Join(home, ".claude/projects/-x/"+sid+".jsonl"), `{"type":"user","cwd":"/tmp","message":{"role":"user","content":"hi"}}`+"\n")
+	me := os.Getpid()
+	write(t, filepath.Join(home, ".claude/sessions/x.json"), fmt.Sprintf(`{"pid":%d,"sessionId":%q,"procStart":%q}`, me, sid, psLstart(t, me)))
+	post := func(body string) (int, string) {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/resume", strings.NewReader(body))
+		req.Header.Set("Cookie", "ad_token="+s.token)
+		req.Header.Set("X-AD", "1")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b := make([]byte, 400)
+		n, _ := res.Body.Read(b)
+		return res.StatusCode, string(b[:n])
+	}
+	code, body := post(fmt.Sprintf(`{"provider":"claude","id":%q}`, sid))
+	if code != 409 || !strings.Contains(body, "running_elsewhere") {
+		t.Fatalf("resume of a session running elsewhere was not refused: %d %s", code, body)
+	}
+	if s.tm.has(TmuxName("claude", sid)) {
+		t.Fatal("a process was started despite the refusal")
+	}
+	// an explicit, informed override must go through (this is a warning, not a lock)
+	if code, body := post(fmt.Sprintf(`{"provider":"claude","id":%q,"force":true}`, sid)); code != 200 {
+		t.Fatalf("force=true was refused: %d %s", code, body)
+	}
+	if !s.tm.has(TmuxName("claude", sid)) {
+		t.Fatal("force=true did not start the session")
+	}
+}
+
+func TestCodexHostedHereIsNotFlaggedButDormantHeldIsRefused(t *testing.T) {
+	if _, err := exec.LookPath("lsof"); err != nil {
+		t.Skip("lsof not available")
+	}
+	s, ts := testServer(t)
+	home := t.TempDir()
+	s.home, s.ix = home, NewIndexer(home)
+	hosted, dormant := "11111111-aaaa-bbbb-cccc-000000000001", "22222222-aaaa-bbbb-cccc-000000000002"
+	for _, id := range []string{hosted, dormant} {
+		write(t, filepath.Join(home, ".codex/sessions/2026/01/01/rollout-"+id+".jsonl"),
+			fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q,"cwd":"/tmp","thread_source":"user"}}`+"\n", id))
+		lock := filepath.Join(home, ".codex/thread-writer-locks/"+id+".lock")
+		write(t, lock, "")
+		f, err := os.Open(lock) // someone (the codex daemon) holds both threads
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+	}
+	if err := s.tm.start(TmuxName("codex", hosted), t.TempDir(), "sleep 60"); err != nil {
+		t.Fatal(err)
+	}
+	post := func(id string) int {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/resume", strings.NewReader(fmt.Sprintf(`{"provider":"codex","id":%q}`, id)))
+		req.Header.Set("Cookie", "ad_token="+s.token)
+		req.Header.Set("X-AD", "1")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if c := post(hosted); c != 200 {
+		t.Errorf("attaching to a codex thread we host ourselves was blocked: %d", c)
+	}
+	if c := post(dormant); c != 409 {
+		t.Errorf("dormant codex thread held by another process was not refused: %d", c)
+	}
+	for _, x := range s.merged() {
+		if x.ID == hosted && len(x.Elsewhere) != 0 {
+			t.Errorf("hosted codex thread wrongly flagged: %v", x.Elsewhere)
+		}
+		if x.ID == dormant && len(x.Elsewhere) == 0 {
+			t.Errorf("dormant held codex thread not flagged")
+		}
 	}
 }
