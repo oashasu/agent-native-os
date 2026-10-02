@@ -81,6 +81,9 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
 @keyframes pulse{50%{opacity:.35}}
 .ut.warnx{background:#4a2020;color:#ffb4ae}
 .warnbox{background:#3a2216;border:1px solid #8a4a1e;color:#ffd0a8;padding:8px 12px;border-radius:8px;margin:8px 0 12px;max-width:900px;line-height:1.6}
+#rename{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:60;background:#1a1f2b;border:1px solid #33405c;border-radius:10px;padding:12px 14px;width:min(520px,90vw);display:none;box-shadow:0 8px 30px #000a}
+#rename label{display:block;color:var(--dim);font-size:11px;margin-bottom:6px}
+#rename input{width:100%;padding:8px 10px;background:var(--panel);border:1px solid var(--acc);border-radius:6px;color:var(--fg);outline:none;font:inherit}
 .keys{color:var(--dim);font-size:11px;padding:6px 12px;border-top:1px solid var(--line);line-height:1.7}
 #pop .quick{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
 #pop .quick button{font-size:11px;padding:1px 7px}
@@ -110,7 +113,7 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
       <div class="row" id="tagchips"></div>
     </div>
     <div id="list"></div>
-    <div class="keys">⌃⇧W 关闭标签 · ⌃⇧S 休眠 · ⌃1-9 跳到第 N 个标签<br>⌘[ ⌘] 切标签 · ⌘↑ ⌘↓ 切会话 · ⌘K 搜索 · 右键/⋯ 标记</div>
+    <div class="keys">⌃⇧W 关闭标签 · ⌃⇧S 休眠 · ⌃⇧R 重命名 · ⌃1-9 跳标签<br>⌘[ ⌘] 切标签 · ⌘↑ ⌘↓ 切会话 · ⌘K 搜索 · 右键/⋯ 标记</div>
     <div id="status"><span id="stLive"></span><span id="stMem"></span></div>
   </div>
   <div id="main">
@@ -127,6 +130,7 @@ kbd{background:var(--panel);border:1px solid var(--line);border-radius:4px;paddi
 <div id="banner"></div>
 <div id="toast"></div>
 <div id="pop"></div>
+<div id="rename"><label></label><input type="text" spellcheck="false" autocomplete="off"></div>
 <script src="xterm.js"></script>
 <script src="addon-fit.js"></script>
 <script src="addon-unicode11.js"></script>
@@ -494,10 +498,36 @@ $('#q').onkeydown=e=>{
 // Ctrl+Shift+W close tab, Ctrl+Shift+S sleep, Ctrl+1..9 jump to tab N. Free on a Mac keyboard, unused by claude/codex.
 function isAppKey(e){
   if(e.metaKey&&['k','j','[',']','w','ArrowUp','ArrowDown','=','+','-','0'].includes(e.key))return true;
-  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&!e.altKey&&['KeyW','KeyS'].includes(e.code))return true;
+  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&!e.altKey&&['KeyW','KeyS','KeyR'].includes(e.code))return true;
   if(e.ctrlKey&&!e.shiftKey&&!e.metaKey&&!e.altKey&&/^Digit[1-9]$/.test(e.code))return true;
   return false;
 }
+// Ctrl+Shift+R: rename the session you are looking at, keyboard only. Same field as the "⋯" panel (alias).
+let renaming=null;
+function renameCur(){
+  const s=st.byKey[st.cur]||st.byKey[st.preview];if(!s)return;
+  renaming=key(s);
+  const box=$('#rename'),inp=box.querySelector('input');
+  box.querySelector('label').textContent='重命名「'+s.title+'」 —— 回车保存，Esc 取消，留空则恢复原标题';
+  inp.value=s.alias||s.title;box.style.display='block';inp.focus();inp.select();
+}
+function closeRename(refocus){
+  $('#rename').style.display='none';
+  if(refocus!==false){const t=st.terms[st.cur];if(t&&!t.off)t.term.focus()}
+  renaming=null;
+}
+$('#rename input').addEventListener('keydown',async e=>{
+  if(e.key==='Escape'){e.preventDefault();closeRename();return}
+  if(e.key!=='Enter')return;
+  e.preventDefault();
+  const s=st.byKey[renaming];if(!s){closeRename();return}
+  let v=e.target.value.trim();if(v===s.title)v='';          // typing the original title back = no alias
+  try{
+    await api('/api/meta',{provider:s.provider,id:s.id,status:s.status||'',tags:s.tags||[],pinned:!!s.pinned,alias:v});
+    await refresh(true);
+  }catch(err){toast(err.message)}
+  closeRename();
+});
 function sleepCur(){
   const s=st.byKey[st.cur];if(!s||!s.live)return;
   if(isWork(s)&&!confirm('该会话正在输出（可能在工作中），确定休眠并结束进程吗？'))return;
@@ -506,6 +536,7 @@ function sleepCur(){
 addEventListener('keydown',e=>{
   if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&e.code==='KeyW'){e.preventDefault();if(st.cur)closeTab(st.cur);return}
   if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&e.code==='KeyS'){e.preventDefault();sleepCur();return}
+  if(e.ctrlKey&&e.shiftKey&&!e.metaKey&&e.code==='KeyR'){e.preventDefault();renameCur();return}
   if(e.ctrlKey&&!e.shiftKey&&!e.metaKey&&!e.altKey&&/^Digit[1-9]$/.test(e.code)){e.preventDefault();const k=st.open[+e.code.slice(5)-1];if(k)show(k);return}
   if(!e.metaKey)return;
   if(e.key==='k'||e.key==='j'){e.preventDefault();$('#q').focus();$('#q').select()}

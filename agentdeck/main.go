@@ -25,6 +25,9 @@ const defaultPort = 47017
 func configDir() string {
 	h, _ := os.UserHomeDir()
 	d := filepath.Join(h, ".config", "agentdeck")
+	if v := os.Getenv("AGENTDECK_CONFIG"); v != "" { // isolated config (tests / trying things without touching real marks)
+		d = v
+	}
 	_ = os.MkdirAll(d, 0o700)
 	return d
 }

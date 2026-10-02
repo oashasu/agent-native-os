@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -415,5 +417,48 @@ func TestCodexHostedHereIsNotFlaggedButDormantHeldIsRefused(t *testing.T) {
 		if x.ID == dormant && len(x.Elsewhere) == 0 {
 			t.Errorf("dormant held codex thread not flagged")
 		}
+	}
+}
+
+func TestAliasViaHTTPShowsUpInSessionList(t *testing.T) {
+	s, ts := testServer(t)
+	home := t.TempDir()
+	s.home, s.ix = home, NewIndexer(home)
+	sid := "bbbbbbbb-1111-2222-3333-444444444444"
+	write(t, filepath.Join(home, ".claude/projects/-x/"+sid+".jsonl"),
+		`{"type":"ai-title","aiTitle":"原标题"}`+"\n"+`{"type":"user","cwd":"/tmp","message":{"role":"user","content":"hi"}}`+"\n")
+	do := func(method, path, body string) []byte {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
+		req.Header.Set("Cookie", "ad_token="+s.token)
+		req.Header.Set("X-AD", "1")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return b
+	}
+	title := func() (string, string) {
+		var list []Session
+		if err := json.Unmarshal(do("GET", "/api/sessions", ""), &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, x := range list {
+			if x.ID == sid {
+				return x.Title, x.Alias
+			}
+		}
+		t.Fatal("session missing")
+		return "", ""
+	}
+	do("POST", "/api/meta", fmt.Sprintf(`{"provider":"claude","id":%q,"alias":"我的名字","status":"wait"}`, sid))
+	if ti, al := title(); ti != "原标题" || al != "我的名字" {
+		t.Fatalf("alias not applied (title must stay original): title=%q alias=%q", ti, al)
+	}
+	// clearing the alias must keep the other marks and restore the original title
+	do("POST", "/api/meta", fmt.Sprintf(`{"provider":"claude","id":%q,"alias":"","status":"wait"}`, sid))
+	if ti, al := title(); ti != "原标题" || al != "" {
+		t.Fatalf("alias not cleared: title=%q alias=%q", ti, al)
 	}
 }
